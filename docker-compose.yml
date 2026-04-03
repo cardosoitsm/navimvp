@@ -1,0 +1,22 @@
+version: "3.8"
+services:
+  app:
+    image: navimvpacr461e8d08.azurecr.io/navimvp:latest
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    environment:
+      - DATABASE_URL=postgres://navimvp:navimvppw@db:5432/navimvp
+
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: navimvp
+      POSTGRES_PASSWORD: navimvppw
+      POSTGRES_DB: navimvp
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
