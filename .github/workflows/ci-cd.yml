@@ -51,9 +51,10 @@ jobs:
           username: ${{ secrets.VM_SSH_USER }}
           key_path: key.pem
           script: |
-	    docker login ${{ secrets.ACR_REGISTRY }} -u ${{ secrets.ACR_USERNAME }} -p ${{ secrets.ACR_PASSWORD }}
-            docker pull ${{ secrets.ACR_REGISTRY }}/navimvp:latest
-            mkdir -p /home/${{ secrets.VM_SSH_USER }}/navimvp
-            cd /home/${{ secrets.VM_SSH_USER }}/navimvp
+            echo "Logging in to ACR"
+            docker login "${{ secrets.ACR_REGISTRY }}" -u "${{ secrets.ACR_USERNAME }}" -p "${{ secrets.ACR_PASSWORD }}"
+            docker pull "${{ secrets.ACR_REGISTRY }}/navimvp:latest"
+            mkdir -p "/home/${{ secrets.VM_SSH_USER }}/navimvp"
+            cd "/home/${{ secrets.VM_SSH_USER }}/navimvp"
             docker-compose pull
             docker-compose up -d --remove-orphans
