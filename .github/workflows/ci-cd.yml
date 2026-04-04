@@ -30,6 +30,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Create SSH key
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY_B64 }}" | base64 -d > key.pem
+          chmod 600 key.pem
+
       - name: Copy docker-compose to server
         uses: appleboy/scp-action@master
         with:
@@ -38,11 +43,6 @@ jobs:
           key_path: key.pem
           source: "docker-compose.yml"
           target: "/home/${{ secrets.VM_SSH_USER }}/navimvp/"
-
-      - name: Create SSH key
-        run: |
-          echo "${{ secrets.SSH_PRIVATE_KEY_B64 }}" | base64 -d > key.pem
-	  chmod 600 key.pem
 
       - name: SSH deploy
         uses: appleboy/ssh-action@master
@@ -54,5 +54,5 @@ jobs:
             docker pull ${{ secrets.ACR_REGISTRY }}/navimvp:latest
             mkdir -p /home/${{ secrets.VM_SSH_USER }}/navimvp
             cd /home/${{ secrets.VM_SSH_USER }}/navimvp
-            docker-compose pull
-            docker-compose up -d --remove-orphans
+            docker compose pull
+            docker compose up -d --remove-orphans
