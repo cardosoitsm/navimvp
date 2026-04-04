@@ -30,27 +30,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/checkout@v4
-
       - name: Copy docker-compose to server
         uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          key_path: key.pem
           source: "docker-compose.yml"
           target: "/home/${{ secrets.VM_SSH_USER }}/navimvp/"
 
-      - name: Fix SSH key format
+      - name: Create SSH key
         run: |
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" | tr -d '\r' > key.pem
-          chmod 600 key.pem
-
-      - name: Debug SSH key
-        run: |
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > key.pem
-          chmod 600 key.pem
-          ssh -i key.pem -o StrictHostKeyChecking=no ${{ secrets.VM_SSH_USER }}@${{ secrets.VM_HOST }} "echo CONECTADO"
+          echo "${{ secrets.SSH_PRIVATE_KEY_B64 }}" | base64 -d > key.pem
+	  chmod 600 key.pem
 
       - name: SSH deploy
         uses: appleboy/ssh-action@master
