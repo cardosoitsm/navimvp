@@ -46,7 +46,7 @@ jobs:
         with:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_SSH_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             docker pull ${{ secrets.ACR_REGISTRY }}/navimvp:latest
             mkdir -p /home/${{ secrets.VM_SSH_USER }}/navimvp
