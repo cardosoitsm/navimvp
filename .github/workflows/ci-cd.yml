@@ -46,6 +46,12 @@ jobs:
           echo "${{ secrets.SSH_PRIVATE_KEY }}" | tr -d '\r' > key.pem
           chmod 600 key.pem
 
+      - name: Debug SSH key
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > key.pem
+          chmod 600 key.pem
+          ssh -i key.pem -o StrictHostKeyChecking=no ${{ secrets.VM_SSH_USER }}@${{ secrets.VM_HOST }} "echo CONECTADO"
+
       - name: SSH deploy
         uses: appleboy/ssh-action@master
         with:
