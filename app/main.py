@@ -80,6 +80,12 @@ async def webhook(request: Request) -> Response:
     return Response(content=build_twiml(resposta), media_type="application/xml")
 
 
+@app.api_route("/webhook-fallback", methods=["GET", "POST"])
+def webhook_fallback() -> Response:
+    resposta = "Estamos com uma instabilidade temporaria. Tente novamente em instantes."
+    return Response(content=build_twiml(resposta), media_type="application/xml")
+
+
 @app.post("/register")
 def register(user: User) -> dict[str, int]:
     user_id = register_user(user.email, user.senha)
