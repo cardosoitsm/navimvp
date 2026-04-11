@@ -1,0 +1,16 @@
+from pydantic import BaseModel, EmailStr, Field
+
+
+class User(BaseModel):
+    email: EmailStr
+    senha: str = Field(min_length=4)
+
+
+class Message(BaseModel):
+    text: str = Field(min_length=1)
+
+
+class ParsedTransaction(BaseModel):
+    tipo: str = "despesa"
+    categoria: str = "outros"
+    valor: float = 0

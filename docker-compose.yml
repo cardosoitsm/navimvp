@@ -1,12 +1,29 @@
 version: "3.8"
 services:
   app:
-    image: navimvpacr461e8d08.azurecr.io/navimvp:latest
+    build:
+      context: .
+      dockerfile: app/Dockerfile
     restart: unless-stopped
     ports:
-      - "8000:80"
+      - "8000:8000"
     environment:
-      - DATABASE_URL=postgres://navimvp:navimvppw@db:5432/navimvp
+      APP_NAME: Navi MVP
+      APP_ENV: development
+      APP_DEBUG: "false"
+      ACCOUNT_SID: ${ACCOUNT_SID:-}
+      AUTH_TOKEN: ${AUTH_TOKEN:-}
+      TWILIO_NUMBER: ${TWILIO_NUMBER:-}
+      SECRET_KEY: ${SECRET_KEY:-change-this-secret}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DATABASE_HOST: db
+      DATABASE_NAME: navimvp
+      DATABASE_USER: navimvp
+      DATABASE_PASSWORD: navimvppw
+      DATABASE_PORT: 5432
+    depends_on:
+      - db
 
   db:
     image: postgres:15
@@ -17,6 +34,7 @@ services:
       POSTGRES_DB: navimvp
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
 
 volumes:
   pgdata:
