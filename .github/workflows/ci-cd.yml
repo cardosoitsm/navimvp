@@ -42,6 +42,8 @@ jobs:
       ALGORITHM: HS256
       DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
     steps:
+      - uses: actions/checkout@v4
+
       - name: Copy deployment files to server
         uses: appleboy/scp-action@master
         with:
