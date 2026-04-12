@@ -50,7 +50,9 @@ jobs:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "docker-compose.prod.yml,db/init.sql"
+          source : |
+            docker-compose.prod.yml
+            db/init.sql
           target: "/home/${{ secrets.VM_SSH_USER }}/navimvp/"
 
       - name: SSH deploy
