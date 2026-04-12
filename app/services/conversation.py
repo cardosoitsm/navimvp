@@ -1,42 +1,35 @@
 import json
 import re
+import unicodedata
 
 from fastapi import HTTPException
 
 from app.db import get_cursor
+from app.services.budgets import build_budget_feedback
 from app.schemas import PendingTransaction
 
 CONFIRMATION_YES = {"sim", "s", "confirmar", "confirmo", "ok", "pode confirmar"}
-CONFIRMATION_NO = {"nao", "não", "n", "cancelar", "corrigir"}
+CONFIRMATION_NO = {"nao", "n", "cancelar", "corrigir"}
 
 QUERY_RECENT_PATTERNS = (
     "ultimos gastos",
-    "últimos gastos",
     "ultimas transacoes",
-    "ultimas transações",
     "ultimas despesas",
-    "últimas despesas",
     "ultimos lancamentos",
-    "ultimos lançamentos",
+)
+
+QUERY_BUDGET_PATTERNS = (
+    "quanto ainda posso gastar",
+    "como esta meu limite",
+    "como esta meu orcamento",
+    "orcamento",
+    "limite",
 )
 
 
 def normalize_text(text: str) -> str:
-    return (
-        text.lower()
-        .strip()
-        .replace("ã", "a")
-        .replace("á", "a")
-        .replace("â", "a")
-        .replace("é", "e")
-        .replace("ê", "e")
-        .replace("í", "i")
-        .replace("ó", "o")
-        .replace("ô", "o")
-        .replace("õ", "o")
-        .replace("ú", "u")
-        .replace("ç", "c")
-    )
+    normalized = unicodedata.normalize("NFKD", text.lower().strip())
+    return normalized.encode("ascii", "ignore").decode("ascii")
 
 
 def detect_intent(text: str) -> str:
@@ -48,6 +41,8 @@ def detect_intent(text: str) -> str:
         return "confirm_no"
     if any(pattern in normalized for pattern in QUERY_RECENT_PATTERNS):
         return "recent_transactions"
+    if any(pattern in normalized for pattern in QUERY_BUDGET_PATTERNS):
+        return "budget_status"
     if "quanto gastei" in normalized:
         return "summary"
     return "transaction"
@@ -113,12 +108,15 @@ def confirm_pending_transaction(user_id: int) -> dict[str, str]:
         cursor.execute("DELETE FROM confirmacoes_pendentes WHERE user_id = %s", (user_id,))
         conn.commit()
 
-    return {
-        "resposta": (
-            "Transacao confirmada:\n\n"
-            f"- {pending.categoria}: R${pending.valor:.2f}"
-        )
-    }
+    resposta = (
+        "Transacao confirmada:\n\n"
+        f"- {pending.categoria}: R${pending.valor:.2f}"
+    )
+    budget_feedback = build_budget_feedback(user_id, pending.categoria)
+    if budget_feedback:
+        resposta = f"{resposta}\n\n{budget_feedback}"
+
+    return {"resposta": resposta}
 
 
 def reject_pending_transaction(user_id: int) -> str:

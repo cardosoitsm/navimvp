@@ -32,6 +32,34 @@ SCHEMA_STATEMENTS = (
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS configuracoes_usuario (
+        user_id BIGINT PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
+        orcamento_onboarding_concluido BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS orcamentos (
+        user_id BIGINT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        categoria VARCHAR(100) NOT NULL,
+        limite_mensal NUMERIC(12, 2) NOT NULL CHECK (limite_mensal > 0),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (user_id, categoria)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS orcamento_alertas (
+        user_id BIGINT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        categoria VARCHAR(100) NOT NULL,
+        mes_referencia DATE NOT NULL,
+        nivel_alerta INTEGER NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (user_id, categoria, mes_referencia, nivel_alerta)
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_transacoes_user_id ON transacoes(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_transacoes_user_categoria ON transacoes(user_id, categoria)",
 )

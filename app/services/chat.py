@@ -7,6 +7,7 @@ from openai import OpenAI
 from app.config import get_settings
 from app.db import get_cursor
 from app.schemas import ParsedTransaction, PendingTransaction
+from app.services.budgets import build_budget_feedback
 from app.services.conversation import save_pending_confirmation, should_request_confirmation
 from app.services.summary import gerar_insight
 
@@ -165,8 +166,11 @@ def process_user_message(text: str, user_id: int) -> dict[str, str]:
         conn.commit()
 
     insight = gerar_insight(user_id, ultima_categoria) if ultima_categoria else ""
+    budget_feedback = build_budget_feedback(user_id, ultima_categoria) if ultima_categoria else ""
     linhas = ["Transacoes registradas:", ""] + respostas
     if insight:
         linhas.extend(["", insight])
+    if budget_feedback:
+        linhas.extend(["", budget_feedback])
 
     return {"resposta": "\n".join(linhas)}

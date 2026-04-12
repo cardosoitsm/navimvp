@@ -5,6 +5,17 @@ from app.auth import create_token, get_current_user
 from app.config import get_settings
 from app.db import init_db, ping_db
 from app.schemas import Message, User
+from app.services.budgets import (
+    build_budget_setup_confirmation,
+    build_budget_status_message,
+    extract_budget_category,
+    is_budget_onboarding_completed,
+    mark_budget_onboarding_completed,
+    onboarding_budget_prompt,
+    parse_budget_message,
+    save_budgets,
+    should_skip_budget_onboarding,
+)
 from app.services.conversation import (
     confirm_pending_transaction,
     detect_intent,
@@ -67,18 +78,29 @@ async def webhook(request: Request) -> Response:
     if novo:
         resposta = (
             "Ola! Bem-vindo ao Navi!\n\n"
-            "Eu vou te ajudar a controlar seus gastos de forma simples.\n\n"
-            "Voce pode me mandar mensagens como:\n"
-            '"Gastei R$50 em Uber"\n'
-            '"Quais foram meus ultimos gastos?"\n'
-            '"Quanto gastei em alimentacao?"\n'
-            '"Quanto gastei no mes?"\n\n'
-            "Vamos comecar? Me envie sua primeira transacao!"
+            "Eu vou te ajudar a controlar seus gastos de forma simples e te avisar quando seus gastos sairem do planejado.\n\n"
+            f"{onboarding_budget_prompt()}"
         )
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
     msg_lower = normalize_text(mensagem)
     intent = detect_intent(mensagem)
+
+    if not is_budget_onboarding_completed(user_id):
+        budgets = parse_budget_message(mensagem)
+        if budgets:
+            save_budgets(user_id, budgets)
+            resposta = build_budget_setup_confirmation(budgets)
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+        if should_skip_budget_onboarding(mensagem):
+            mark_budget_onboarding_completed(user_id)
+            resposta = "Tudo bem. Voce pode configurar seus limites depois. Agora me envie sua primeira transacao."
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+        if intent not in {"transaction", "summary", "recent_transactions", "confirm_yes", "confirm_no", "budget_status"}:
+            resposta = onboarding_budget_prompt()
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+        mark_budget_onboarding_completed(user_id)
+
     try:
         if intent == "confirm_yes":
             resposta = confirm_pending_transaction(user_id)["resposta"]
@@ -86,6 +108,12 @@ async def webhook(request: Request) -> Response:
             resposta = reject_pending_transaction(user_id)
         elif intent == "recent_transactions":
             resposta = listar_ultimas_transacoes(user_id)
+        elif intent == "budget_status":
+            categoria = extract_budget_category(mensagem)
+            if categoria:
+                resposta = build_budget_status_message(user_id, categoria)
+            else:
+                resposta = "Me diga a categoria que voce quer consultar, por exemplo: Quanto ainda posso gastar com farmacia?"
         elif "quanto gastei" in msg_lower and "transporte" in msg_lower:
             resposta = resumo_categoria(user_id, "transporte")
         elif "quanto gastei" in msg_lower and "alimentacao" in msg_lower:

@@ -3,6 +3,7 @@ from psycopg2 import IntegrityError
 
 from app.auth import hash_password, verify_password
 from app.db import get_cursor
+from app.services.budgets import ensure_user_settings
 
 AUTO_PASSWORD_PREFIX = "whatsapp-user:"
 
@@ -27,7 +28,9 @@ def get_or_create_whatsapp_user(numero: str) -> tuple[int, bool]:
         )
         created = cursor.fetchone()
         conn.commit()
-        return int(created[0]), True
+        user_id = int(created[0])
+        ensure_user_settings(user_id)
+        return user_id, True
 
 
 def register_user(email: str, senha: str) -> int:
@@ -39,7 +42,9 @@ def register_user(email: str, senha: str) -> int:
             )
             created = cursor.fetchone()
             conn.commit()
-            return int(created[0])
+            user_id = int(created[0])
+            ensure_user_settings(user_id)
+            return user_id
         except IntegrityError as exc:
             conn.rollback()
             raise HTTPException(status_code=409, detail="Usuario ja existe") from exc
