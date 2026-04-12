@@ -20,3 +20,7 @@ class PendingTransaction(BaseModel):
     tipo: str = "despesa"
     categoria: str = "outros"
     valor: float
+
+
+class AdminResetRequest(BaseModel):
+    email: str = Field(min_length=3)

@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse, Response
 from app.auth import create_token, get_current_user
 from app.config import get_settings
 from app.db import init_db, ping_db
-from app.schemas import Message, User
+from app.schemas import AdminResetRequest, Message, User
 from app.services.budgets import (
     build_budget_setup_confirmation,
     build_budget_status_message,
@@ -27,6 +27,7 @@ from app.services.summary import listar_ultimas_transacoes, resumo_categoria, re
 from app.services.twilio import build_twiml
 from app.services.users import (
     authenticate_user,
+    delete_user_account,
     get_or_create_whatsapp_user,
     register_user,
 )
@@ -151,3 +152,13 @@ def login(user: User) -> dict[str, str]:
 @app.post("/chat")
 def chat(msg: Message, user_id: int = Depends(get_current_user)) -> dict[str, str]:
     return process_user_message(msg.text, user_id)
+
+
+@app.post("/admin/reset-user")
+def admin_reset_user(payload: AdminResetRequest, request: Request) -> dict[str, bool]:
+    admin_key = (request.headers.get("X-Admin-Key") or "").strip()
+    if admin_key != settings.secret_key:
+        raise HTTPException(status_code=403, detail="Chave administrativa invalida")
+
+    deleted = delete_user_account(payload.email)
+    return {"deleted": deleted}

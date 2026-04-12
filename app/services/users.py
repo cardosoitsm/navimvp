@@ -66,3 +66,27 @@ def authenticate_user(email: str, senha: str) -> int:
         raise HTTPException(status_code=401, detail="Senha invalida")
 
     return int(user_id)
+
+
+def delete_user_account(email: str) -> bool:
+    with get_cursor() as (conn, cursor):
+        cursor.execute("SELECT id FROM usuarios WHERE email = %s", (email,))
+        result = cursor.fetchone()
+        if not result:
+            return False
+
+        user_id = int(result[0])
+        tables = (
+            "orcamento_alertas",
+            "orcamentos",
+            "configuracoes_usuario",
+            "confirmacoes_pendentes",
+            "transacoes",
+        )
+
+        for table_name in tables:
+            cursor.execute(f"DELETE FROM {table_name} WHERE user_id = %s", (user_id,))
+
+        cursor.execute("DELETE FROM usuarios WHERE id = %s", (user_id,))
+        conn.commit()
+        return True
