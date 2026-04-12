@@ -5,8 +5,14 @@ from app.auth import create_token, get_current_user
 from app.config import get_settings
 from app.db import init_db, ping_db
 from app.schemas import Message, User
+from app.services.conversation import (
+    confirm_pending_transaction,
+    detect_intent,
+    normalize_text,
+    reject_pending_transaction,
+)
 from app.services.chat import process_user_message
-from app.services.summary import resumo_categoria, resumo_mes
+from app.services.summary import listar_ultimas_transacoes, resumo_categoria, resumo_mes
 from app.services.twilio import build_twiml
 from app.services.users import (
     authenticate_user,
@@ -64,15 +70,23 @@ async def webhook(request: Request) -> Response:
             "Eu vou te ajudar a controlar seus gastos de forma simples.\n\n"
             "Voce pode me mandar mensagens como:\n"
             '"Gastei R$50 em Uber"\n'
+            '"Quais foram meus ultimos gastos?"\n'
             '"Quanto gastei em alimentacao?"\n'
             '"Quanto gastei no mes?"\n\n'
             "Vamos comecar? Me envie sua primeira transacao!"
         )
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
-    msg_lower = mensagem.lower()
+    msg_lower = normalize_text(mensagem)
+    intent = detect_intent(mensagem)
     try:
-        if "quanto gastei" in msg_lower and "transporte" in msg_lower:
+        if intent == "confirm_yes":
+            resposta = confirm_pending_transaction(user_id)["resposta"]
+        elif intent == "confirm_no":
+            resposta = reject_pending_transaction(user_id)
+        elif intent == "recent_transactions":
+            resposta = listar_ultimas_transacoes(user_id)
+        elif "quanto gastei" in msg_lower and "transporte" in msg_lower:
             resposta = resumo_categoria(user_id, "transporte")
         elif "quanto gastei" in msg_lower and "alimentacao" in msg_lower:
             resposta = resumo_categoria(user_id, "alimentacao")

@@ -25,6 +25,13 @@ SCHEMA_STATEMENTS = (
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS confirmacoes_pendentes (
+        user_id BIGINT PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
+        payload_json TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_transacoes_user_id ON transacoes(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_transacoes_user_categoria ON transacoes(user_id, categoria)",
 )

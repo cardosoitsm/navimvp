@@ -75,3 +75,26 @@ def gerar_insight(user_id: int, categoria: str) -> str:
         f"Voce ja gastou R${total_categoria:.2f} em {categoria}\n"
         f"Isso representa {percentual:.0f}% dos seus gastos."
     )
+
+
+def listar_ultimas_transacoes(user_id: int, limite: int = 5) -> str:
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            """
+            SELECT categoria, valor, tipo, created_at
+            FROM transacoes
+            WHERE user_id = %s
+            ORDER BY created_at DESC, id DESC
+            LIMIT %s
+            """,
+            (user_id, limite),
+        )
+        dados = cursor.fetchall()
+
+    if not dados:
+        return "Voce ainda nao registrou transacoes."
+
+    linhas = ["Seus ultimos lancamentos:", ""]
+    for categoria, valor, tipo, _ in dados:
+        linhas.append(f"- {tipo} em {categoria}: R${float(valor):.2f}")
+    return "\n".join(linhas)

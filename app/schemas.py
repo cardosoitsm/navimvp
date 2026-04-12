@@ -14,3 +14,9 @@ class ParsedTransaction(BaseModel):
     tipo: str = "despesa"
     categoria: str = "outros"
     valor: float = 0
+
+
+class PendingTransaction(BaseModel):
+    tipo: str = "despesa"
+    categoria: str = "outros"
+    valor: float

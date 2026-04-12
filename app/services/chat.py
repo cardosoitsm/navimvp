@@ -1,11 +1,13 @@
 import json
+import unicodedata
 
 from fastapi import HTTPException
 from openai import OpenAI
 
 from app.config import get_settings
 from app.db import get_cursor
-from app.schemas import ParsedTransaction
+from app.schemas import ParsedTransaction, PendingTransaction
+from app.services.conversation import save_pending_confirmation, should_request_confirmation
 from app.services.summary import gerar_insight
 
 
@@ -17,7 +19,7 @@ REGRAS_CATEGORIAS = {
 }
 
 
-def _normalizar_texto(valor: str) -> str:
+def _normalizar_texto_legado(valor: str) -> str:
     return (
         valor.lower()
         .replace("ã", "a")
@@ -32,6 +34,11 @@ def _normalizar_texto(valor: str) -> str:
         .replace("ú", "u")
         .replace("ç", "c")
     )
+
+
+def _normalizar_texto(valor: str) -> str:
+    normalized = unicodedata.normalize("NFKD", valor.lower())
+    return normalized.encode("ascii", "ignore").decode("ascii")
 
 
 def classificar_categoria(texto: str) -> str | None:
@@ -95,6 +102,21 @@ def _extract_transactions_from_ai(text: str) -> list[ParsedTransaction]:
     return transactions
 
 
+def _normalize_transaction(text: str, transaction: ParsedTransaction) -> PendingTransaction:
+    categoria_regra = classificar_categoria(text)
+    categoria = categoria_regra or _normalizar_texto(transaction.categoria or "outros")
+    tipo = _normalizar_texto(transaction.tipo or "despesa")
+    return PendingTransaction(tipo=tipo, categoria=categoria, valor=float(transaction.valor))
+
+
+def _build_confirmation_message(transaction: PendingTransaction) -> str:
+    return (
+        "Entendi esta transacao:\n\n"
+        f"- {transaction.tipo} em {transaction.categoria}: R${transaction.valor:.2f}\n\n"
+        "Responda SIM para confirmar ou NAO para cancelar."
+    )
+
+
 def process_user_message(text: str, user_id: int) -> dict[str, str]:
     try:
         transactions = _extract_transactions_from_ai(text)
@@ -117,27 +139,28 @@ def process_user_message(text: str, user_id: int) -> dict[str, str]:
             detail="Nao encontrei uma transacao valida na sua mensagem.",
         )
 
-    categoria_regra = classificar_categoria(text)
+    normalized_transactions = [_normalize_transaction(text, transaction) for transaction in transactions]
+
+    if len(normalized_transactions) == 1 and should_request_confirmation(text):
+        pending = normalized_transactions[0]
+        save_pending_confirmation(user_id, pending)
+        return {"resposta": _build_confirmation_message(pending)}
 
     respostas: list[str] = []
     ultima_categoria = None
 
     with get_cursor() as (conn, cursor):
-        for transaction in transactions:
-            categoria = categoria_regra or _normalizar_texto(transaction.categoria or "outros")
-            tipo = _normalizar_texto(transaction.tipo or "despesa")
-            valor = float(transaction.valor)
-
+        for transaction in normalized_transactions:
             cursor.execute(
                 """
                 INSERT INTO transacoes (tipo, categoria, valor, user_id)
                 VALUES (%s, %s, %s, %s)
                 """,
-                (tipo, categoria, valor, user_id),
+                (transaction.tipo, transaction.categoria, transaction.valor, user_id),
             )
 
-            respostas.append(f"- {categoria}: R${valor:.2f}")
-            ultima_categoria = categoria
+            respostas.append(f"- {transaction.categoria}: R${transaction.valor:.2f}")
+            ultima_categoria = transaction.categoria
 
         conn.commit()
 
