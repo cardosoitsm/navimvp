@@ -36,6 +36,8 @@ SCHEMA_STATEMENTS = (
     CREATE TABLE IF NOT EXISTS configuracoes_usuario (
         user_id BIGINT PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
         orcamento_onboarding_concluido BOOLEAN NOT NULL DEFAULT FALSE,
+        documentos_onboarding_concluido BOOLEAN NOT NULL DEFAULT FALSE,
+        aguardando_documento BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
@@ -59,6 +61,25 @@ SCHEMA_STATEMENTS = (
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         PRIMARY KEY (user_id, categoria, mes_referencia, nivel_alerta)
     )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS documentos_financeiros (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        tipo_documento VARCHAR(50) NOT NULL,
+        origem_midia VARCHAR(100) NOT NULL,
+        media_url TEXT NOT NULL,
+        status_processamento VARCHAR(50) NOT NULL DEFAULT 'recebido',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    """
+    ALTER TABLE configuracoes_usuario
+    ADD COLUMN IF NOT EXISTS documentos_onboarding_concluido BOOLEAN NOT NULL DEFAULT FALSE
+    """,
+    """
+    ALTER TABLE configuracoes_usuario
+    ADD COLUMN IF NOT EXISTS aguardando_documento BOOLEAN NOT NULL DEFAULT FALSE
     """,
     "CREATE INDEX IF NOT EXISTS idx_transacoes_user_id ON transacoes(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_transacoes_user_categoria ON transacoes(user_id, categoria)",

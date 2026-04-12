@@ -22,6 +22,19 @@ from app.services.conversation import (
     normalize_text,
     reject_pending_transaction,
 )
+from app.services.documents import (
+    build_document_receipt_message,
+    complete_document_onboarding,
+    document_invite_prompt,
+    document_upload_prompt,
+    get_incoming_media,
+    is_document_onboarding_completed,
+    is_waiting_for_document,
+    register_document,
+    should_skip_document_onboarding,
+    should_start_document_onboarding,
+    start_document_onboarding,
+)
 from app.services.chat import process_user_message
 from app.services.summary import listar_ultimas_transacoes, resumo_categoria, resumo_mes
 from app.services.twilio import build_twiml
@@ -66,6 +79,7 @@ async def webhook(request: Request) -> Response:
     form = await request.form()
     mensagem = (form.get("Body") or "").strip()
     numero = (form.get("From") or "").strip()
+    incoming_media = get_incoming_media(form)
 
     if not numero:
         return Response(
@@ -91,7 +105,10 @@ async def webhook(request: Request) -> Response:
         budgets = parse_budget_message(mensagem)
         if budgets:
             save_budgets(user_id, budgets)
-            resposta = build_budget_setup_confirmation(budgets)
+            resposta = (
+                f"{build_budget_setup_confirmation(budgets)}\n\n"
+                f"{document_invite_prompt()}"
+            )
             return Response(content=build_twiml(resposta), media_type="application/xml")
         if should_skip_budget_onboarding(mensagem):
             mark_budget_onboarding_completed(user_id)
@@ -101,6 +118,32 @@ async def webhook(request: Request) -> Response:
             "Ainda nao consegui registrar seus limites mensais.\n\n"
             f"{onboarding_budget_prompt()}"
         )
+        return Response(content=build_twiml(resposta), media_type="application/xml")
+
+    if not is_document_onboarding_completed(user_id):
+        if is_waiting_for_document(user_id):
+            if incoming_media:
+                media_url, media_content_type = incoming_media
+                tipo_documento = register_document(user_id, media_url, media_content_type, mensagem)
+                complete_document_onboarding(user_id)
+                resposta = build_document_receipt_message(tipo_documento)
+                return Response(content=build_twiml(resposta), media_type="application/xml")
+            if should_skip_document_onboarding(mensagem):
+                complete_document_onboarding(user_id)
+                resposta = "Tudo bem. Podemos analisar seus documentos depois. Agora ja posso seguir com o seu acompanhamento financeiro."
+                return Response(content=build_twiml(resposta), media_type="application/xml")
+            resposta = document_upload_prompt()
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        if should_start_document_onboarding(mensagem):
+            start_document_onboarding(user_id)
+            resposta = document_upload_prompt()
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+        if should_skip_document_onboarding(mensagem):
+            complete_document_onboarding(user_id)
+            resposta = "Tudo bem. Podemos analisar seus documentos depois. Agora ja posso seguir com o seu acompanhamento financeiro."
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+        resposta = document_invite_prompt()
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
     try:

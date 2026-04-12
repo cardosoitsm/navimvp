@@ -77,6 +77,7 @@ def delete_user_account(email: str) -> bool:
 
         user_id = int(result[0])
         tables = (
+            "documentos_financeiros",
             "orcamento_alertas",
             "orcamentos",
             "configuracoes_usuario",
