@@ -68,26 +68,36 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           envs: ACR_REGISTRY,ACCOUNT_SID,AUTH_TOKEN,TWILIO_NUMBER,OPENAI_API_KEY,SECRET_KEY,ALGORITHM,DATABASE_PASSWORD
           script: |
-            /bin/bash -lc '
-              set -e
-              mkdir -p /home/${{ secrets.VM_SSH_USER }}/navimvp/db
-              cd /home/${{ secrets.VM_SSH_USER }}/navimvp
+            set -e
 
-              printf "%s\n" \
-                "ACR_REGISTRY=${ACR_REGISTRY}" \
-                "ACCOUNT_SID=${ACCOUNT_SID}" \
-                "AUTH_TOKEN=${AUTH_TOKEN}" \
-                "TWILIO_NUMBER=${TWILIO_NUMBER}" \
-                "OPENAI_API_KEY=${OPENAI_API_KEY}" \
-                "SECRET_KEY=${SECRET_KEY}" \
-                "ALGORITHM=${ALGORITHM}" \
-                "DATABASE_PASSWORD=${DATABASE_PASSWORD}" > .env
+            APP_DIR=/home/${{ secrets.VM_SSH_USER }}/navimvp
+            mkdir -p "$APP_DIR/db"
+            cd "$APP_DIR"
 
-              echo "${{ secrets.ACR_PASSWORD }}" | docker login ${ACR_REGISTRY} -u "${{ secrets.ACR_USERNAME }}" --password-stdin
+            printf "%s\n" \
+              "ACR_REGISTRY=${ACR_REGISTRY}" \
+              "ACCOUNT_SID=${ACCOUNT_SID}" \
+              "AUTH_TOKEN=${AUTH_TOKEN}" \
+              "TWILIO_NUMBER=${TWILIO_NUMBER}" \
+              "OPENAI_API_KEY=${OPENAI_API_KEY}" \
+              "SECRET_KEY=${SECRET_KEY}" \
+              "ALGORITHM=${ALGORITHM}" \
+              "DATABASE_PASSWORD=${DATABASE_PASSWORD}" > .env
 
-              docker --version
-              docker compose version
+            echo "${{ secrets.ACR_PASSWORD }}" | docker login "${ACR_REGISTRY}" -u "${{ secrets.ACR_USERNAME }}" --password-stdin
 
-              docker compose -f docker-compose.prod.yml down --remove-orphans || true
-              docker compose -f docker-compose.prod.yml pull
-              docker compose -f docker-compose.prod.yml up -d --remove-orphans --force-recreate
+            compose() {
+              if docker compose version >/dev/null 2>&1; then
+                docker compose "$@"
+              elif command -v docker-compose >/dev/null 2>&1; then
+                docker-compose "$@"
+              else
+                echo "Docker Compose is not available on the VM"
+                exit 1
+              fi
+            }
+
+            compose -f docker-compose.prod.yml down --remove-orphans || true
+            compose -f docker-compose.prod.yml pull
+            compose -f docker-compose.prod.yml up -d --remove-orphans --force-recreate
+
