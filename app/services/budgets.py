@@ -93,18 +93,14 @@ def _parse_decimal(raw_amount: str) -> Decimal:
 
 def parse_budget_message(text: str) -> dict[str, Decimal]:
     normalized = _normalize_text(text)
-    segments = re.split(r"[,\n;]+", normalized)
     budgets: dict[str, Decimal] = {}
 
-    for segment in segments:
-        segment = segment.strip()
-        if not segment:
-            continue
+    pattern = re.compile(
+        r"(?P<categoria>farmacia|mercado|supermercado|alimentacao|lazer|transporte|moradia|saude)"
+        r"\s*[:=-]?\s*(?:r\$)?\s*(?P<valor>\d+(?:[.,]\d{1,2})?)"
+    )
 
-        match = re.search(r"(?P<categoria>[a-z ]+?)\s*(?:r\$)?\s*(?P<valor>\d+(?:[.,]\d{1,2})?)$", segment)
-        if not match:
-            continue
-
+    for match in pattern.finditer(normalized):
         categoria = _normalize_category(match.group("categoria"))
         try:
             valor = _parse_decimal(match.group("valor"))

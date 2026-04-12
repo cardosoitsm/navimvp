@@ -97,10 +97,11 @@ async def webhook(request: Request) -> Response:
             mark_budget_onboarding_completed(user_id)
             resposta = "Tudo bem. Voce pode configurar seus limites depois. Agora me envie sua primeira transacao."
             return Response(content=build_twiml(resposta), media_type="application/xml")
-        if intent not in {"transaction", "summary", "recent_transactions", "confirm_yes", "confirm_no", "budget_status"}:
-            resposta = onboarding_budget_prompt()
-            return Response(content=build_twiml(resposta), media_type="application/xml")
-        mark_budget_onboarding_completed(user_id)
+        resposta = (
+            "Ainda nao consegui registrar seus limites mensais.\n\n"
+            f"{onboarding_budget_prompt()}"
+        )
+        return Response(content=build_twiml(resposta), media_type="application/xml")
 
     try:
         if intent == "confirm_yes":
