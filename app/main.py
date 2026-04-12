@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse, Response
 
 from app.auth import create_token, get_current_user
 from app.config import get_settings
+from app.db import init_db, ping_db
 from app.schemas import Message, User
 from app.services.chat import process_user_message
 from app.services.summary import resumo_categoria, resumo_mes
@@ -15,6 +16,11 @@ from app.services.users import (
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name, debug=settings.app_debug)
+
+
+@app.on_event("startup")
+def startup() -> None:
+    init_db()
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -32,7 +38,9 @@ def root() -> str:
 
 @app.get("/health")
 def healthcheck() -> dict[str, str]:
-    return {"status": "ok", "environment": settings.app_env}
+    db_status = "ok" if ping_db() else "error"
+    status = "ok" if db_status == "ok" else "degraded"
+    return {"status": status, "environment": settings.app_env, "database": db_status}
 
 
 @app.post("/webhook")
