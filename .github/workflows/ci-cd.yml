@@ -48,6 +48,8 @@ jobs:
         run: |
           ls -la
           ls -la db
+          test -f docker-compose.prod.yml
+          test -f db/init.sql
 
       - name: Copy deployment files to server
         uses: appleboy/scp-action@master
@@ -55,9 +57,7 @@ jobs:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source : |
-            docker-compose.prod.yml
-            db/init.sql
+          source : "docker-compose.prod.yml,db"
           target: "/home/${{ secrets.VM_SSH_USER }}/navimvp/"
 
       - name: SSH deploy
