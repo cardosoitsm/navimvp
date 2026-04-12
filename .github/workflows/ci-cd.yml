@@ -44,7 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
      
-      -name: Verify deployment files
+      - name: Verify deployment files
         run: |
           ls -la
           ls -la db
