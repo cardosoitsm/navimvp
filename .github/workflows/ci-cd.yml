@@ -82,5 +82,5 @@ jobs:
             DATABASE_PASSWORD=${DATABASE_PASSWORD}
             EOF
             docker login ${ACR_REGISTRY} -u ${{ secrets.ACR_USERNAME }} -p ${{ secrets.ACR_PASSWORD }}
-            docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            docker-compose -f docker-compose.prod.yml pull
+            docker-compose -f docker-compose.prod.yml up -d --remove-orphans
