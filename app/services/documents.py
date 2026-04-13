@@ -49,7 +49,8 @@ def _income_detection_instructions(hinted_type: str) -> str:
             "Nao use saldo atual, limite, total de entradas, transferencias entre contas do proprio usuario, estornos ou reembolsos. "
             "Se nao houver evidencias claras, retorne null. "
             "Diferencie salario/renda recorrente de liquidacao de investimento, resgate, PIX avulso ou transferencia pontual. "
-            "Preencha income_description com o texto mais provavel da origem da renda e income_confidence como high, medium ou low."
+            "Preencha income_description com o texto mais provavel da origem da renda e income_confidence como high, medium ou low. "
+            f"{_statement_extraction_instructions()}"
         )
     if hinted_type == "fatura_cartao":
         return (
@@ -67,6 +68,34 @@ def _format_income_confidence(confidence: str | None) -> str | None:
     if not confidence:
         return None
     return mapping.get(confidence, confidence)
+
+
+def _statement_extraction_instructions() -> str:
+    return (
+        "Para extratos bancarios, analise a tabela usando principalmente as colunas "
+        "'Descricao', 'Credito (R$)', 'Debito (R$)' e 'Saldo (R$)'. "
+        "Identifique as entradas olhando a coluna 'Credito (R$)' e correlacionando com a descricao da mesma linha. "
+        "Se a descricao contiver 'LIQUIDO DE VENCIMENTO', registre essa linha em credit_entries com a descricao e o valor da coluna 'Credito (R$)'. "
+        "Outra regra importante: valores sem '-' na frente representam credito/entrada; valores com '-' representam debito/saida. "
+        "Preencha credit_entries e debit_entries como listas de objetos com {description, amount}. "
+        "Nao trate todo credito como renda: credito pode ser investimento, transferencia ou outra entrada pontual."
+    )
+
+
+def _normalize_statement_entries(entries: Any) -> list[dict[str, Any]]:
+    if not isinstance(entries, list):
+        return []
+
+    normalized_entries: list[dict[str, Any]] = []
+    for entry in entries[:5]:
+        if not isinstance(entry, dict):
+            continue
+        description = str(entry.get("description") or "").strip()
+        amount = _safe_float(entry.get("amount"))
+        if not description or amount is None:
+            continue
+        normalized_entries.append({"description": description, "amount": amount})
+    return normalized_entries
 
 
 def _classify_income_kind(description: str) -> str:
@@ -340,6 +369,8 @@ def _extract_document_analysis(
                     '"income_description":"texto" ou null,'
                     '"income_confidence":"high|medium|low" ou null,'
                     '"income_kind":"salary|transfer|investment|refund|unknown" ou null,'
+                    '"credit_entries":[{"description":"texto","amount":numero}],'
+                    '"debit_entries":[{"description":"texto","amount":numero}],'
                     '"estimated_fixed_expenses":numero ou null,'
                     '"top_items":["item 1","item 2"]}'
                 ),
@@ -368,6 +399,8 @@ def _extract_document_analysis(
     content = response.choices[0].message.content or "{}"
     analysis = _parse_openai_json(content)
     analysis["document_type"] = analysis.get("document_type") or hinted_type
+    analysis["credit_entries"] = _normalize_statement_entries(analysis.get("credit_entries"))
+    analysis["debit_entries"] = _normalize_statement_entries(analysis.get("debit_entries"))
     return _normalize_income_signal(analysis, hinted_type)
 
 
@@ -466,6 +499,8 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
     income_description = (analysis.get("income_description") or "").strip()
     income_confidence = analysis.get("income_confidence")
     income_kind = analysis.get("income_kind")
+    credit_entries = _normalize_statement_entries(analysis.get("credit_entries"))
+    debit_entries = _normalize_statement_entries(analysis.get("debit_entries"))
     invoice_total = _safe_float(analysis.get("invoice_total"))
     minimum_payment = _safe_float(analysis.get("minimum_payment"))
     due_date = analysis.get("due_date")
@@ -490,6 +525,14 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
             }
             lines.append(f"- encontrei um credito, mas ele parece ser {labels.get(income_kind, 'um credito pontual')} e nao renda recorrente")
             lines.append(f"- origem observada: {income_description}")
+        if credit_entries:
+            lines.extend(["", "Creditos identificados no extrato:"])
+            for entry in credit_entries[:3]:
+                lines.append(f"- {entry['description']}: R${entry['amount']:.2f}")
+        if debit_entries:
+            lines.extend(["", "Debitos identificados no extrato:"])
+            for entry in debit_entries[:3]:
+                lines.append(f"- {entry['description']}: R${entry['amount']:.2f}")
     elif document_type == "fatura_cartao":
         lines.append("Recebi sua fatura e ja extraí alguns dados importantes.")
         if invoice_total is not None:
