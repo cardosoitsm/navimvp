@@ -116,6 +116,22 @@ def _classify_income_kind(description: str) -> str:
     return "unknown"
 
 
+def _has_explicit_salary_evidence(description: str) -> bool:
+    normalized = _normalize_text(description)
+    strong_salary_keywords = (
+        "salario",
+        "folha de pagamento",
+        "pagamento salario",
+        "proventos",
+        "deposito salario",
+        "credito salario",
+        "holerite",
+        "inss",
+        "aposentadoria",
+    )
+    return any(keyword in normalized for keyword in strong_salary_keywords)
+
+
 def _normalize_income_signal(analysis: dict[str, Any], hinted_type: str) -> dict[str, Any]:
     if hinted_type != "extrato":
         return analysis
@@ -125,6 +141,16 @@ def _normalize_income_signal(analysis: dict[str, Any], hinted_type: str) -> dict
     combined_description = " ".join(part for part in [income_description, summary] if part).strip()
     income_kind = _classify_income_kind(combined_description)
     analysis["income_kind"] = income_kind
+
+    if not _has_explicit_salary_evidence(combined_description):
+        analysis["detected_income"] = None
+        if income_kind == "salary":
+            analysis["income_kind"] = "unknown"
+        if not analysis.get("income_confidence"):
+            analysis["income_confidence"] = "low"
+        if not income_description and combined_description:
+            analysis["income_description"] = combined_description
+        return analysis
 
     if income_kind in {"investment", "transfer", "refund"}:
         analysis["detected_income"] = None
