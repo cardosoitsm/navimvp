@@ -41,6 +41,33 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
+def _income_detection_instructions(hinted_type: str) -> str:
+    if hinted_type == "extrato":
+        return (
+            "Para extratos bancarios, detected_income deve ser apenas a renda mais provavel identificada no documento. "
+            "Considere salario, pagamento, proventos, deposito de folha, PIX recebido recorrente ou transferencia recebida com aparencia de renda. "
+            "Nao use saldo atual, limite, total de entradas, transferencias entre contas do proprio usuario, estornos ou reembolsos. "
+            "Se nao houver evidencias claras, retorne null. "
+            "Preencha income_description com o texto mais provavel da origem da renda e income_confidence como high, medium ou low."
+        )
+    if hinted_type == "fatura_cartao":
+        return (
+            "Para faturas de cartao, detected_income normalmente deve ser null, a menos que exista alguma informacao explicita de renda no documento."
+        )
+    return "Se a renda nao estiver clara no documento, retorne detected_income como null."
+
+
+def _format_income_confidence(confidence: str | None) -> str | None:
+    mapping = {
+        "high": "alta",
+        "medium": "media",
+        "low": "baixa",
+    }
+    if not confidence:
+        return None
+    return mapping.get(confidence, confidence)
+
+
 def document_invite_prompt() -> str:
     return (
         "Se voce quiser, eu tambem posso analisar seu extrato e sua fatura para entender melhor sua situacao financeira.\n\n"
@@ -191,6 +218,7 @@ def _extract_document_analysis(
     client = OpenAI(api_key=settings.openai_api_key)
     encoded_media = base64.b64encode(media_bytes).decode("utf-8")
     data_url = f"data:{media_content_type};base64,{encoded_media}"
+    income_instructions = _income_detection_instructions(hinted_type)
 
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
@@ -208,6 +236,8 @@ def _extract_document_analysis(
                     '"due_date":"YYYY-MM-DD" ou null,'
                     '"issuer":"texto" ou null,'
                     '"detected_income":numero ou null,'
+                    '"income_description":"texto" ou null,'
+                    '"income_confidence":"high|medium|low" ou null,'
                     '"estimated_fixed_expenses":numero ou null,'
                     '"top_items":["item 1","item 2"]}'
                 ),
@@ -220,6 +250,7 @@ def _extract_document_analysis(
                         "text": (
                             f"Mensagem do usuario: {message_text or 'sem legenda'}.\n"
                             f"Tipo sugerido inicialmente: {hinted_type}.\n"
+                            f"{income_instructions}\n"
                             "Extraia apenas o que estiver visivel com boa confianca."
                         ),
                     },
@@ -258,6 +289,9 @@ def _persist_financial_context(user_id: int, analysis: dict[str, Any]) -> None:
     document_type = analysis.get("document_type")
     current_balance = _safe_float(analysis.get("current_balance"))
     detected_income = _safe_float(analysis.get("detected_income"))
+    income_confidence = analysis.get("income_confidence")
+    if income_confidence == "low":
+        detected_income = None
     estimated_fixed_expenses = _safe_float(analysis.get("estimated_fixed_expenses"))
     invoice_total = _safe_float(analysis.get("invoice_total"))
     minimum_payment = _safe_float(analysis.get("minimum_payment"))
@@ -326,6 +360,8 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
     summary = (analysis.get("summary") or "").strip()
     current_balance = _safe_float(analysis.get("current_balance"))
     detected_income = _safe_float(analysis.get("detected_income"))
+    income_description = (analysis.get("income_description") or "").strip()
+    income_confidence = analysis.get("income_confidence")
     invoice_total = _safe_float(analysis.get("invoice_total"))
     minimum_payment = _safe_float(analysis.get("minimum_payment"))
     due_date = analysis.get("due_date")
@@ -337,6 +373,11 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
             lines.append(f"- saldo estimado: R${current_balance:.2f}")
         if detected_income is not None:
             lines.append(f"- renda identificada: R${detected_income:.2f}")
+            if income_description:
+                lines.append(f"- origem mais provavel da renda: {income_description}")
+            confidence_label = _format_income_confidence(income_confidence)
+            if confidence_label:
+                lines.append(f"- confianca da renda identificada: {confidence_label}")
     elif document_type == "fatura_cartao":
         lines.append("Recebi sua fatura e ja extraí alguns dados importantes.")
         if invoice_total is not None:
