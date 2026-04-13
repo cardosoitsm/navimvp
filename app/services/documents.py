@@ -1,16 +1,44 @@
+import base64
+import json
 import unicodedata
+from typing import Any
 
+import requests
+from openai import OpenAI
 from starlette.datastructures import FormData
 
+from app.config import get_settings
 from app.db import get_cursor
 
 SKIP_DOCUMENT_WORDS = {"pular", "depois", "agora nao", "nao"}
 START_DOCUMENT_WORDS = {"sim", "s", "quero", "vamos", "enviar"}
+SUPPORTED_MEDIA_TYPES = {"image/jpeg", "image/png", "image/webp", "application/pdf"}
 
 
 def _normalize_text(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", text.lower().strip())
     return normalized.encode("ascii", "ignore").decode("ascii")
+
+
+def _parse_openai_json(content: str) -> dict[str, Any]:
+    payload = content.strip()
+    if "```" in payload:
+        parts = payload.split("```")
+        if len(parts) > 1:
+            payload = parts[1].replace("json", "").strip()
+    parsed = json.loads(payload)
+    if not isinstance(parsed, dict):
+        raise ValueError("Formato inesperado retornado pela IA")
+    return parsed
+
+
+def _safe_float(value: Any) -> float | None:
+    if value in (None, "", "null"):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def document_invite_prompt() -> str:
@@ -111,9 +139,12 @@ def infer_document_type(message_text: str, media_content_type: str) -> str:
     return "documento_desconhecido"
 
 
-def register_document(user_id: int, media_url: str, media_content_type: str, message_text: str) -> str:
-    tipo_documento = infer_document_type(message_text, media_content_type)
-
+def _store_document(
+    user_id: int,
+    tipo_documento: str,
+    media_content_type: str,
+    media_url: str,
+) -> int:
     with get_cursor() as (conn, cursor):
         cursor.execute(
             """
@@ -125,12 +156,233 @@ def register_document(user_id: int, media_url: str, media_content_type: str, mes
                 status_processamento
             )
             VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
             """,
             (user_id, tipo_documento, media_content_type, media_url, "recebido"),
         )
+        document_id = int(cursor.fetchone()[0])
+        conn.commit()
+    return document_id
+
+
+def _download_media_bytes(media_url: str) -> bytes:
+    settings = get_settings()
+    response = requests.get(
+        media_url,
+        auth=(settings.account_sid, settings.auth_token),
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.content
+
+
+def _extract_document_analysis(
+    message_text: str,
+    media_content_type: str,
+    media_bytes: bytes,
+    hinted_type: str,
+) -> dict[str, Any] | None:
+    settings = get_settings()
+    if not settings.openai_api_key or media_content_type not in SUPPORTED_MEDIA_TYPES:
+        return None
+    if media_content_type == "application/pdf":
+        return None
+
+    client = OpenAI(api_key=settings.openai_api_key)
+    encoded_media = base64.b64encode(media_bytes).decode("utf-8")
+    data_url = f"data:{media_content_type};base64,{encoded_media}"
+
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Voce analisa documentos financeiros. "
+                    "Retorne apenas JSON valido com este formato: "
+                    '{"document_type":"extrato|fatura_cartao|desconhecido",'
+                    '"summary":"texto curto",'
+                    '"current_balance":numero ou null,'
+                    '"invoice_total":numero ou null,'
+                    '"minimum_payment":numero ou null,'
+                    '"due_date":"YYYY-MM-DD" ou null,'
+                    '"issuer":"texto" ou null,'
+                    '"detected_income":numero ou null,'
+                    '"estimated_fixed_expenses":numero ou null,'
+                    '"top_items":["item 1","item 2"]}'
+                ),
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"Mensagem do usuario: {message_text or 'sem legenda'}.\n"
+                            f"Tipo sugerido inicialmente: {hinted_type}.\n"
+                            "Extraia apenas o que estiver visivel com boa confianca."
+                        ),
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": data_url},
+                    },
+                ],
+            },
+        ],
+    )
+
+    content = response.choices[0].message.content or "{}"
+    analysis = _parse_openai_json(content)
+    analysis["document_type"] = analysis.get("document_type") or hinted_type
+    return analysis
+
+
+def _update_document_analysis(document_id: int, analysis: dict[str, Any] | None) -> None:
+    payload = json.dumps(analysis, ensure_ascii=False) if analysis else None
+    status = "processado" if analysis else "recebido"
+    with get_cursor() as (conn, cursor):
+        cursor.execute(
+            """
+            UPDATE documentos_financeiros
+            SET extracted_json = %s,
+                status_processamento = %s
+            WHERE id = %s
+            """,
+            (payload, status, document_id),
+        )
         conn.commit()
 
-    return tipo_documento
+
+def _persist_financial_context(user_id: int, analysis: dict[str, Any]) -> None:
+    document_type = analysis.get("document_type")
+    current_balance = _safe_float(analysis.get("current_balance"))
+    detected_income = _safe_float(analysis.get("detected_income"))
+    estimated_fixed_expenses = _safe_float(analysis.get("estimated_fixed_expenses"))
+    invoice_total = _safe_float(analysis.get("invoice_total"))
+    minimum_payment = _safe_float(analysis.get("minimum_payment"))
+    due_date = analysis.get("due_date")
+    issuer = analysis.get("issuer")
+
+    pressure = None
+    if invoice_total is not None:
+        if detected_income and detected_income > 0:
+            ratio = invoice_total / detected_income
+            pressure = "alta" if ratio >= 0.5 else "moderada" if ratio >= 0.25 else "baixa"
+        else:
+            pressure = "moderada" if invoice_total >= 1000 else "baixa"
+
+    with get_cursor() as (conn, cursor):
+        cursor.execute(
+            """
+            INSERT INTO perfil_financeiro (
+                user_id,
+                saldo_atual_estimado,
+                renda_identificada,
+                despesas_fixas_estimadas,
+                pressao_cartao,
+                updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (user_id)
+            DO UPDATE SET
+                saldo_atual_estimado = COALESCE(EXCLUDED.saldo_atual_estimado, perfil_financeiro.saldo_atual_estimado),
+                renda_identificada = COALESCE(EXCLUDED.renda_identificada, perfil_financeiro.renda_identificada),
+                despesas_fixas_estimadas = COALESCE(EXCLUDED.despesas_fixas_estimadas, perfil_financeiro.despesas_fixas_estimadas),
+                pressao_cartao = COALESCE(EXCLUDED.pressao_cartao, perfil_financeiro.pressao_cartao),
+                updated_at = NOW()
+            """,
+            (user_id, current_balance, detected_income, estimated_fixed_expenses, pressure),
+        )
+
+        if document_type == "fatura_cartao" and invoice_total is not None:
+            cursor.execute(
+                """
+                INSERT INTO faturas_cartao (
+                    user_id,
+                    valor_total,
+                    vencimento,
+                    pagamento_minimo,
+                    emissor,
+                    mes_referencia
+                )
+                VALUES (
+                    %s,
+                    %s,
+                    NULLIF(%s, '')::date,
+                    %s,
+                    %s,
+                    DATE_TRUNC('month', NOW())::date
+                )
+                """,
+                (user_id, invoice_total, due_date or "", minimum_payment, issuer),
+            )
+
+        conn.commit()
+
+
+def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str:
+    document_type = analysis.get("document_type") or fallback_type
+    summary = (analysis.get("summary") or "").strip()
+    current_balance = _safe_float(analysis.get("current_balance"))
+    detected_income = _safe_float(analysis.get("detected_income"))
+    invoice_total = _safe_float(analysis.get("invoice_total"))
+    minimum_payment = _safe_float(analysis.get("minimum_payment"))
+    due_date = analysis.get("due_date")
+
+    lines: list[str] = []
+    if document_type == "extrato":
+        lines.append("Recebi seu extrato e consegui identificar alguns sinais importantes.")
+        if current_balance is not None:
+            lines.append(f"- saldo estimado: R${current_balance:.2f}")
+        if detected_income is not None:
+            lines.append(f"- renda identificada: R${detected_income:.2f}")
+    elif document_type == "fatura_cartao":
+        lines.append("Recebi sua fatura e ja extraí alguns dados importantes.")
+        if invoice_total is not None:
+            lines.append(f"- valor total da fatura: R${invoice_total:.2f}")
+        if due_date:
+            lines.append(f"- vencimento identificado: {due_date}")
+        if minimum_payment is not None:
+            lines.append(f"- pagamento minimo: R${minimum_payment:.2f}")
+    else:
+        lines.append("Recebi seu documento financeiro e consegui registrar algumas informacoes iniciais.")
+
+    if summary:
+        lines.extend(["", summary])
+
+    lines.extend(
+        [
+            "",
+            "Vou usar essas informacoes para deixar meus alertas financeiros mais inteligentes.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def process_received_document(user_id: int, media_url: str, media_content_type: str, message_text: str) -> str:
+    hinted_type = infer_document_type(message_text, media_content_type)
+    document_id = _store_document(user_id, hinted_type, media_content_type, media_url)
+
+    if media_content_type not in SUPPORTED_MEDIA_TYPES:
+        return (
+            "Recebi seu documento, mas por enquanto eu so consigo analisar imagens e PDFs. "
+            "Vou guardar essa referencia para as proximas evolucoes."
+        )
+
+    try:
+        media_bytes = _download_media_bytes(media_url)
+        analysis = _extract_document_analysis(message_text, media_content_type, media_bytes, hinted_type)
+    except Exception:
+        analysis = None
+
+    _update_document_analysis(document_id, analysis)
+
+    if not analysis:
+        return build_document_receipt_message(hinted_type)
+
+    _persist_financial_context(user_id, analysis)
+    return _build_analysis_message(analysis, hinted_type)
 
 
 def build_document_receipt_message(tipo_documento: str) -> str:

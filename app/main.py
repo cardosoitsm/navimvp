@@ -23,14 +23,13 @@ from app.services.conversation import (
     reject_pending_transaction,
 )
 from app.services.documents import (
-    build_document_receipt_message,
     complete_document_onboarding,
     document_invite_prompt,
     document_upload_prompt,
     get_incoming_media,
     is_document_onboarding_completed,
     is_waiting_for_document,
-    register_document,
+    process_received_document,
     should_skip_document_onboarding,
     should_start_document_onboarding,
     start_document_onboarding,
@@ -124,9 +123,8 @@ async def webhook(request: Request) -> Response:
         if is_waiting_for_document(user_id):
             if incoming_media:
                 media_url, media_content_type = incoming_media
-                tipo_documento = register_document(user_id, media_url, media_content_type, mensagem)
+                resposta = process_received_document(user_id, media_url, media_content_type, mensagem)
                 complete_document_onboarding(user_id)
-                resposta = build_document_receipt_message(tipo_documento)
                 return Response(content=build_twiml(resposta), media_type="application/xml")
             if should_skip_document_onboarding(mensagem):
                 complete_document_onboarding(user_id)

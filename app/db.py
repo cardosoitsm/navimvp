@@ -69,7 +69,30 @@ SCHEMA_STATEMENTS = (
         tipo_documento VARCHAR(50) NOT NULL,
         origem_midia VARCHAR(100) NOT NULL,
         media_url TEXT NOT NULL,
+        extracted_json TEXT NULL,
         status_processamento VARCHAR(50) NOT NULL DEFAULT 'recebido',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS perfil_financeiro (
+        user_id BIGINT PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
+        saldo_atual_estimado NUMERIC(12, 2) NULL,
+        renda_identificada NUMERIC(12, 2) NULL,
+        despesas_fixas_estimadas NUMERIC(12, 2) NULL,
+        pressao_cartao VARCHAR(20) NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS faturas_cartao (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        valor_total NUMERIC(12, 2) NOT NULL,
+        vencimento DATE NULL,
+        pagamento_minimo NUMERIC(12, 2) NULL,
+        emissor VARCHAR(100) NULL,
+        mes_referencia DATE NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
     """,
@@ -80,6 +103,10 @@ SCHEMA_STATEMENTS = (
     """
     ALTER TABLE configuracoes_usuario
     ADD COLUMN IF NOT EXISTS aguardando_documento BOOLEAN NOT NULL DEFAULT FALSE
+    """,
+    """
+    ALTER TABLE documentos_financeiros
+    ADD COLUMN IF NOT EXISTS extracted_json TEXT NULL
     """,
     "CREATE INDEX IF NOT EXISTS idx_transacoes_user_id ON transacoes(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_transacoes_user_categoria ON transacoes(user_id, categoria)",
