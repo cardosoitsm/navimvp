@@ -121,17 +121,26 @@ async def webhook(request: Request) -> Response:
 
     if not is_document_onboarding_completed(user_id):
         if is_waiting_for_document(user_id):
-            if incoming_media:
-                media_url, media_content_type = incoming_media
-                resposta = process_received_document(user_id, media_url, media_content_type, mensagem)
-                complete_document_onboarding(user_id)
+            try:
+                if incoming_media:
+                    media_url, media_content_type = incoming_media
+                    resposta = process_received_document(user_id, media_url, media_content_type, mensagem)
+                    complete_document_onboarding(user_id)
+                    return Response(content=build_twiml(resposta), media_type="application/xml")
+                if should_skip_document_onboarding(mensagem):
+                    complete_document_onboarding(user_id)
+                    resposta = "Tudo bem. Podemos analisar seus documentos depois. Agora ja posso seguir com o seu acompanhamento financeiro."
+                    return Response(content=build_twiml(resposta), media_type="application/xml")
+                resposta = document_upload_prompt()
                 return Response(content=build_twiml(resposta), media_type="application/xml")
-            if should_skip_document_onboarding(mensagem):
-                complete_document_onboarding(user_id)
-                resposta = "Tudo bem. Podemos analisar seus documentos depois. Agora ja posso seguir com o seu acompanhamento financeiro."
+            except HTTPException as exc:
+                return Response(content=build_twiml(exc.detail), media_type="application/xml")
+            except Exception:
+                resposta = (
+                    "Recebi seu documento, mas tive um problema para processa-lo agora. "
+                    "Tente enviar novamente em instantes."
+                )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
-            resposta = document_upload_prompt()
-            return Response(content=build_twiml(resposta), media_type="application/xml")
 
         if should_start_document_onboarding(mensagem):
             start_document_onboarding(user_id)
