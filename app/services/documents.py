@@ -48,6 +48,7 @@ def _income_detection_instructions(hinted_type: str) -> str:
             "Considere salario, pagamento, proventos, deposito de folha, PIX recebido recorrente ou transferencia recebida com aparencia de renda. "
             "Nao use saldo atual, limite, total de entradas, transferencias entre contas do proprio usuario, estornos ou reembolsos. "
             "Se nao houver evidencias claras, retorne null. "
+            "Diferencie salario/renda recorrente de liquidacao de investimento, resgate, PIX avulso ou transferencia pontual. "
             "Preencha income_description com o texto mais provavel da origem da renda e income_confidence como high, medium ou low."
         )
     if hinted_type == "fatura_cartao":
@@ -66,6 +67,80 @@ def _format_income_confidence(confidence: str | None) -> str | None:
     if not confidence:
         return None
     return mapping.get(confidence, confidence)
+
+
+def _classify_income_kind(description: str) -> str:
+    normalized = _normalize_text(description)
+
+    salary_keywords = (
+        "salario",
+        "folha",
+        "pagamento salario",
+        "proventos",
+        "beneficio",
+        "aposentadoria",
+        "inss",
+        "holerite",
+        "rendimento mensal",
+    )
+    investment_keywords = (
+        "liquido de vencimento",
+        "resgate",
+        "aplicacao",
+        "investimento",
+        "cdb",
+        "tesouro",
+        "renda fixa",
+        "compass",
+    )
+    transfer_keywords = (
+        "pix recebido",
+        "ted recebida",
+        "transferencia recebida",
+        "deposito identificado",
+    )
+    refund_keywords = (
+        "estorno",
+        "reembolso",
+        "devolucao",
+    )
+
+    if any(keyword in normalized for keyword in salary_keywords):
+        return "salary"
+    if any(keyword in normalized for keyword in investment_keywords):
+        return "investment"
+    if any(keyword in normalized for keyword in transfer_keywords):
+        return "transfer"
+    if any(keyword in normalized for keyword in refund_keywords):
+        return "refund"
+    return "unknown"
+
+
+def _normalize_income_signal(analysis: dict[str, Any], hinted_type: str) -> dict[str, Any]:
+    if hinted_type != "extrato":
+        return analysis
+
+    income_description = (analysis.get("income_description") or "").strip()
+    summary = (analysis.get("summary") or "").strip()
+    combined_description = " ".join(part for part in [income_description, summary] if part).strip()
+    income_kind = _classify_income_kind(combined_description)
+    analysis["income_kind"] = income_kind
+
+    if income_kind in {"investment", "transfer", "refund"}:
+        analysis["detected_income"] = None
+        analysis["income_confidence"] = None
+        if not income_description and combined_description:
+            analysis["income_description"] = combined_description
+        return analysis
+
+    if income_kind == "unknown":
+        analysis["income_confidence"] = "low"
+        return analysis
+
+    if income_kind == "salary" and not analysis.get("income_confidence"):
+        analysis["income_confidence"] = "high"
+
+    return analysis
 
 
 def document_invite_prompt() -> str:
@@ -238,6 +313,7 @@ def _extract_document_analysis(
                     '"detected_income":numero ou null,'
                     '"income_description":"texto" ou null,'
                     '"income_confidence":"high|medium|low" ou null,'
+                    '"income_kind":"salary|transfer|investment|refund|unknown" ou null,'
                     '"estimated_fixed_expenses":numero ou null,'
                     '"top_items":["item 1","item 2"]}'
                 ),
@@ -266,7 +342,7 @@ def _extract_document_analysis(
     content = response.choices[0].message.content or "{}"
     analysis = _parse_openai_json(content)
     analysis["document_type"] = analysis.get("document_type") or hinted_type
-    return analysis
+    return _normalize_income_signal(analysis, hinted_type)
 
 
 def _update_document_analysis(document_id: int, analysis: dict[str, Any] | None) -> None:
@@ -290,7 +366,8 @@ def _persist_financial_context(user_id: int, analysis: dict[str, Any]) -> None:
     current_balance = _safe_float(analysis.get("current_balance"))
     detected_income = _safe_float(analysis.get("detected_income"))
     income_confidence = analysis.get("income_confidence")
-    if income_confidence == "low":
+    income_kind = analysis.get("income_kind")
+    if income_confidence == "low" or income_kind in {"investment", "transfer", "refund", "unknown"}:
         detected_income = None
     estimated_fixed_expenses = _safe_float(analysis.get("estimated_fixed_expenses"))
     invoice_total = _safe_float(analysis.get("invoice_total"))
@@ -362,6 +439,7 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
     detected_income = _safe_float(analysis.get("detected_income"))
     income_description = (analysis.get("income_description") or "").strip()
     income_confidence = analysis.get("income_confidence")
+    income_kind = analysis.get("income_kind")
     invoice_total = _safe_float(analysis.get("invoice_total"))
     minimum_payment = _safe_float(analysis.get("minimum_payment"))
     due_date = analysis.get("due_date")
@@ -378,6 +456,14 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
             confidence_label = _format_income_confidence(income_confidence)
             if confidence_label:
                 lines.append(f"- confianca da renda identificada: {confidence_label}")
+        elif income_kind in {"investment", "transfer", "refund"} and income_description:
+            labels = {
+                "investment": "uma movimentacao de investimento",
+                "transfer": "uma transferencia recebida",
+                "refund": "um estorno ou reembolso",
+            }
+            lines.append(f"- encontrei um credito, mas ele parece ser {labels.get(income_kind, 'um credito pontual')} e nao renda recorrente")
+            lines.append(f"- origem observada: {income_description}")
     elif document_type == "fatura_cartao":
         lines.append("Recebi sua fatura e ja extraí alguns dados importantes.")
         if invoice_total is not None:
