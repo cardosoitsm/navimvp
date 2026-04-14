@@ -4,6 +4,7 @@ import unicodedata
 from typing import Any
 
 import requests
+from fastapi import HTTPException
 from openai import OpenAI
 from starlette.datastructures import FormData
 
@@ -320,6 +321,26 @@ def _store_document(
         document_id = int(cursor.fetchone()[0])
         conn.commit()
     return document_id
+
+
+def register_received_document(
+    user_id: int,
+    media_url: str,
+    media_content_type: str,
+    message_text: str,
+) -> str:
+    if media_content_type not in SUPPORTED_MEDIA_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Recebi sua midia, mas por enquanto consigo trabalhar apenas com imagem ou PDF. "
+                "Pode me enviar o extrato ou a fatura nesses formatos?"
+            ),
+        )
+
+    hinted_type = infer_document_type(message_text, media_content_type)
+    _store_document(user_id, hinted_type, media_content_type, media_url)
+    return build_document_receipt_message(hinted_type)
 
 
 def _download_media_bytes(media_url: str) -> bytes:

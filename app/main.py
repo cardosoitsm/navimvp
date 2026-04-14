@@ -29,7 +29,7 @@ from app.services.documents import (
     get_incoming_media,
     is_document_onboarding_completed,
     is_waiting_for_document,
-    process_received_document,
+    register_received_document,
     should_skip_document_onboarding,
     should_start_document_onboarding,
     start_document_onboarding,
@@ -124,7 +124,7 @@ async def webhook(request: Request) -> Response:
             try:
                 if incoming_media:
                     media_url, media_content_type = incoming_media
-                    resposta = process_received_document(user_id, media_url, media_content_type, mensagem)
+                    resposta = register_received_document(user_id, media_url, media_content_type, mensagem)
                     complete_document_onboarding(user_id)
                     return Response(content=build_twiml(resposta), media_type="application/xml")
                 if should_skip_document_onboarding(mensagem):
