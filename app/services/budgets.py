@@ -6,6 +6,8 @@ from app.db import get_cursor
 from app.services.onboarding import DOCUMENT_ONBOARDING_PENDING, set_onboarding_state
 
 SKIP_BUDGET_WORDS = {"pular", "depois", "agora nao", "agora nao.", "nao"}
+BUDGET_EDIT_WORDS = {"alterar", "adicionar", "ajustar", "mudar", "editar", "revisar", "atualizar"}
+BUDGET_CONTEXT_WORDS = {"budget", "orcamento", "limite", "limites", "categoria", "categorias"}
 
 CATEGORY_ALIASES = {
     "farmacia": "farmacia",
@@ -99,7 +101,7 @@ def parse_budget_message(text: str) -> dict[str, Decimal]:
 
     pattern = re.compile(
         r"(?P<categoria>farmacia|mercado|supermercado|alimentacao|lazer|transporte|moradia|saude)"
-        r"\s*[:=-]?\s*(?:r\$)?\s*(?P<valor>\d+(?:[.,]\d{1,2})?)"
+        r"\s*[:=-]?\s*(?:r\$)?\s*(?P<valor>\d{1,3}(?:\.\d{3})*(?:,\d{2})?|\d+(?:,\d{2})?)"
     )
 
     for match in pattern.finditer(normalized):
@@ -114,6 +116,21 @@ def parse_budget_message(text: str) -> dict[str, Decimal]:
         budgets[categoria] = valor
 
     return budgets
+
+
+def is_budget_edit_request(text: str) -> bool:
+    normalized = _normalize_text(text)
+    has_edit_word = any(word in normalized for word in BUDGET_EDIT_WORDS)
+    has_context_word = any(word in normalized for word in BUDGET_CONTEXT_WORDS)
+    return has_edit_word and has_context_word
+
+
+def budget_edit_prompt() -> str:
+    return (
+        "Claro. Voce pode ajustar seus limites quando quiser.\n\n"
+        "Se preferir, me mande ja no formato novo. Por exemplo:\n"
+        "Mercado 2000, farmacia 1200, lazer 1000"
+    )
 
 
 def save_budgets(user_id: int, budgets: dict[str, Decimal]) -> None:

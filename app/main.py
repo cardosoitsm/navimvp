@@ -6,9 +6,11 @@ from app.config import get_settings
 from app.db import init_db, ping_db
 from app.schemas import AdminResetRequest, Message, User
 from app.services.budgets import (
+    budget_edit_prompt,
     build_budget_setup_confirmation,
     build_budget_status_message,
     extract_budget_category,
+    is_budget_edit_request,
     is_budget_onboarding_completed,
     mark_budget_onboarding_completed,
     onboarding_budget_prompt,
@@ -228,6 +230,9 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 f"{document_invite_prompt()}"
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
+        if is_budget_edit_request(mensagem):
+            resposta = budget_edit_prompt()
+            return Response(content=build_twiml(resposta), media_type="application/xml")
         if should_skip_budget_onboarding(mensagem):
             mark_budget_onboarding_completed(user_id)
             resposta = "Tudo bem. A gente pode configurar seus limites depois. Quando quiser, ja pode me mandar sua primeira transacao."
@@ -239,6 +244,21 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
     if onboarding_state != ONBOARDING_COMPLETE and not is_document_onboarding_completed(user_id):
+        budgets = parse_budget_message(mensagem)
+        if budgets:
+            save_budgets(user_id, budgets)
+            resposta = (
+                "Perfeito. Atualizei seus limites.\n\n"
+                f"{build_budget_setup_confirmation(budgets)}\n\n"
+                f"{document_invite_prompt()}"
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+        if is_budget_edit_request(mensagem):
+            resposta = (
+                f"{budget_edit_prompt()}\n\n"
+                "Depois que voce me mandar os novos valores, eu atualizo tudo por aqui."
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
         if is_waiting_for_document(user_id):
             try:
                 if incoming_media:
