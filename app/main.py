@@ -1,4 +1,4 @@
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 
 from app.auth import create_token, get_current_user
@@ -29,6 +29,7 @@ from app.services.documents import (
     get_incoming_media,
     is_document_onboarding_completed,
     is_waiting_for_document,
+    process_stored_document,
     register_received_document,
     should_skip_document_onboarding,
     should_start_document_onboarding,
@@ -74,7 +75,7 @@ def healthcheck() -> dict[str, str]:
 
 
 @app.post("/webhook")
-async def webhook(request: Request) -> Response:
+async def webhook(request: Request, background_tasks: BackgroundTasks) -> Response:
     form = await request.form()
     mensagem = (form.get("Body") or "").strip()
     numero = (form.get("From") or "").strip()
@@ -124,7 +125,21 @@ async def webhook(request: Request) -> Response:
             try:
                 if incoming_media:
                     media_url, media_content_type = incoming_media
-                    resposta = register_received_document(user_id, media_url, media_content_type, mensagem)
+                    document_id, hinted_type, resposta = register_received_document(
+                        user_id,
+                        media_url,
+                        media_content_type,
+                        mensagem,
+                    )
+                    background_tasks.add_task(
+                        process_stored_document,
+                        document_id,
+                        user_id,
+                        media_url,
+                        media_content_type,
+                        mensagem,
+                        hinted_type,
+                    )
                     complete_document_onboarding(user_id)
                     return Response(content=build_twiml(resposta), media_type="application/xml")
                 if should_skip_document_onboarding(mensagem):

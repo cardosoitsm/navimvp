@@ -1,11 +1,15 @@
 import base64
 import json
+import re
 import unicodedata
+from datetime import datetime
+from io import BytesIO
 from typing import Any
 
 import requests
 from fastapi import HTTPException
 from openai import OpenAI
+from pypdf import PdfReader
 from starlette.datastructures import FormData
 
 from app.config import get_settings
@@ -39,7 +43,38 @@ def _safe_float(value: Any) -> float | None:
     try:
         return float(value)
     except (TypeError, ValueError):
+        pass
+
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        cleaned = cleaned.replace("R$", "").replace(" ", "")
+        cleaned = cleaned.replace(".", "").replace(",", ".")
+        if cleaned.startswith("(") and cleaned.endswith(")"):
+            cleaned = f"-{cleaned[1:-1]}"
+        try:
+            return float(cleaned)
+        except ValueError:
+            return None
+
+    return None
+
+
+def _normalize_date(value: Any) -> str | None:
+    if not value:
         return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    for fmt in ("%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return text
 
 
 def _income_detection_instructions(hinted_type: str) -> str:
@@ -74,11 +109,13 @@ def _format_income_confidence(confidence: str | None) -> str | None:
 def _statement_extraction_instructions() -> str:
     return (
         "Para extratos bancarios, analise a tabela usando principalmente as colunas "
-        "'Descricao', 'Credito (R$)', 'Debito (R$)' e 'Saldo (R$)'. "
+        "'Data', 'Descricao', 'Credito (R$)', 'Debito (R$)' e 'Saldo (R$)'. "
         "Identifique as entradas olhando a coluna 'Credito (R$)' e correlacionando com a descricao da mesma linha. "
         "Se a descricao contiver 'LIQUIDO DE VENCIMENTO', registre essa linha em credit_entries com a descricao e o valor da coluna 'Credito (R$)'. "
         "Outra regra importante: valores sem '-' na frente representam credito/entrada; valores com '-' representam debito/saida. "
-        "Preencha credit_entries e debit_entries como listas de objetos com {description, amount}. "
+        "Preencha statement_rows como lista de objetos com {date, description, credit, debit, balance, raw_amount_text, confidence}. "
+        "Para cada linha visivel, use a data da mesma linha na coluna 'Data'. "
+        "Preencha credit_entries e debit_entries como listas de objetos com {date, description, amount}. "
         "Nao trate todo credito como renda: credito pode ser investimento, transferencia ou outra entrada pontual."
     )
 
@@ -93,10 +130,81 @@ def _normalize_statement_entries(entries: Any) -> list[dict[str, Any]]:
             continue
         description = str(entry.get("description") or "").strip()
         amount = _safe_float(entry.get("amount"))
+        date = _normalize_date(entry.get("date"))
         if not description or amount is None:
             continue
-        normalized_entries.append({"description": description, "amount": amount})
+        normalized_entries.append({"date": date, "description": description, "amount": amount})
     return normalized_entries
+
+
+def _normalize_statement_rows(rows: Any) -> list[dict[str, Any]]:
+    if not isinstance(rows, list):
+        return []
+
+    normalized_rows: list[dict[str, Any]] = []
+    for row in rows[:50]:
+        if not isinstance(row, dict):
+            continue
+
+        description = str(row.get("description") or "").strip()
+        if not description:
+            continue
+
+        credit = _safe_float(row.get("credit"))
+        debit = _safe_float(row.get("debit"))
+        balance = _safe_float(row.get("balance"))
+        raw_amount_text = str(row.get("raw_amount_text") or "").strip()
+        confidence = str(row.get("confidence") or "").strip().lower() or "medium"
+
+        if credit is None and debit is None and raw_amount_text:
+            inferred = _safe_float(raw_amount_text)
+            if inferred is not None:
+                if raw_amount_text.lstrip().startswith("-"):
+                    debit = abs(inferred)
+                else:
+                    credit = inferred
+
+        if credit is None and debit is None and balance is None:
+            continue
+
+        normalized_rows.append(
+            {
+                "date": _normalize_date(row.get("date")),
+                "description": description,
+                "credit": abs(credit) if credit is not None else None,
+                "debit": abs(debit) if debit is not None else None,
+                "balance": balance,
+                "raw_amount_text": raw_amount_text or None,
+                "confidence": confidence if confidence in {"high", "medium", "low"} else "medium",
+            }
+        )
+
+    return normalized_rows
+
+
+def _derive_statement_entries(statement_rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    credit_entries: list[dict[str, Any]] = []
+    debit_entries: list[dict[str, Any]] = []
+
+    for row in statement_rows:
+        if row.get("credit") is not None:
+            credit_entries.append(
+                {
+                    "date": row.get("date"),
+                    "description": row["description"],
+                    "amount": float(row["credit"]),
+                }
+            )
+        if row.get("debit") is not None:
+            debit_entries.append(
+                {
+                    "date": row.get("date"),
+                    "description": row["description"],
+                    "amount": float(row["debit"]),
+                }
+            )
+
+    return credit_entries[:10], debit_entries[:10]
 
 
 def _classify_income_kind(description: str) -> str:
@@ -197,6 +305,16 @@ def _normalize_income_signal(analysis: dict[str, Any], hinted_type: str) -> dict
         analysis["income_confidence"] = "high"
 
     return analysis
+
+
+def _extract_pdf_text(media_bytes: bytes) -> str:
+    reader = PdfReader(BytesIO(media_bytes))
+    pages: list[str] = []
+    for page in reader.pages[:10]:
+        text = page.extract_text() or ""
+        text = re.sub(r"\s+\n", "\n", text)
+        pages.append(text.strip())
+    return "\n\n".join(part for part in pages if part).strip()
 
 
 def document_invite_prompt() -> str:
@@ -328,7 +446,7 @@ def register_received_document(
     media_url: str,
     media_content_type: str,
     message_text: str,
-) -> str:
+) -> tuple[int, str, str]:
     if media_content_type not in SUPPORTED_MEDIA_TYPES:
         raise HTTPException(
             status_code=400,
@@ -339,8 +457,8 @@ def register_received_document(
         )
 
     hinted_type = infer_document_type(message_text, media_content_type)
-    _store_document(user_id, hinted_type, media_content_type, media_url)
-    return build_document_receipt_message(hinted_type)
+    document_id = _store_document(user_id, hinted_type, media_content_type, media_url)
+    return document_id, hinted_type, build_document_receipt_message(hinted_type)
 
 
 def _download_media_bytes(media_url: str) -> bytes:
@@ -363,65 +481,87 @@ def _extract_document_analysis(
     settings = get_settings()
     if not settings.openai_api_key or media_content_type not in SUPPORTED_MEDIA_TYPES:
         return None
-    if media_content_type == "application/pdf":
-        return None
 
     client = OpenAI(api_key=settings.openai_api_key)
-    encoded_media = base64.b64encode(media_bytes).decode("utf-8")
-    data_url = f"data:{media_content_type};base64,{encoded_media}"
     income_instructions = _income_detection_instructions(hinted_type)
-
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "Voce analisa documentos financeiros. "
-                    "Retorne apenas JSON valido com este formato: "
-                    '{"document_type":"extrato|fatura_cartao|desconhecido",'
-                    '"summary":"texto curto",'
-                    '"current_balance":numero ou null,'
-                    '"invoice_total":numero ou null,'
-                    '"minimum_payment":numero ou null,'
-                    '"due_date":"YYYY-MM-DD" ou null,'
-                    '"issuer":"texto" ou null,'
-                    '"detected_income":numero ou null,'
-                    '"income_description":"texto" ou null,'
-                    '"income_confidence":"high|medium|low" ou null,'
-                    '"income_kind":"salary|transfer|investment|refund|unknown" ou null,'
-                    '"credit_entries":[{"description":"texto","amount":numero}],'
-                    '"debit_entries":[{"description":"texto","amount":numero}],'
-                    '"estimated_fixed_expenses":numero ou null,'
-                    '"top_items":["item 1","item 2"]}'
-                ),
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": (
-                            f"Mensagem do usuario: {message_text or 'sem legenda'}.\n"
-                            f"Tipo sugerido inicialmente: {hinted_type}.\n"
-                            f"{income_instructions}\n"
-                            "Extraia apenas o que estiver visivel com boa confianca."
-                        ),
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": data_url},
-                    },
-                ],
-            },
-        ],
+    system_content = (
+        "Voce analisa documentos financeiros. "
+        "Retorne apenas JSON valido com este formato: "
+        '{"document_type":"extrato|fatura_cartao|desconhecido",'
+        '"summary":"texto curto",'
+        '"current_balance":numero ou null,'
+        '"invoice_total":numero ou null,'
+        '"minimum_payment":numero ou null,'
+        '"due_date":"YYYY-MM-DD" ou null,'
+        '"issuer":"texto" ou null,'
+        '"detected_income":numero ou null,'
+        '"income_description":"texto" ou null,'
+        '"income_confidence":"high|medium|low" ou null,'
+        '"income_kind":"salary|transfer|investment|refund|unknown" ou null,'
+        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"texto","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low"}],'
+        '"credit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}],'
+        '"debit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}],'
+        '"estimated_fixed_expenses":numero ou null,'
+        '"top_items":["item 1","item 2"]}'
     )
+
+    if media_content_type == "application/pdf":
+        extracted_text = _extract_pdf_text(media_bytes)
+        if not extracted_text:
+            return None
+
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": system_content},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Mensagem do usuario: {message_text or 'sem legenda'}.\n"
+                        f"Tipo sugerido inicialmente: {hinted_type}.\n"
+                        f"{income_instructions}\n"
+                        "O texto abaixo foi extraido de um PDF. Reconstrua as linhas relevantes do documento e preencha statement_rows quando for extrato.\n\n"
+                        f"{extracted_text[:18000]}"
+                    ),
+                },
+            ],
+        )
+    else:
+        encoded_media = base64.b64encode(media_bytes).decode("utf-8")
+        data_url = f"data:{media_content_type};base64,{encoded_media}"
+
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": system_content},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                f"Mensagem do usuario: {message_text or 'sem legenda'}.\n"
+                                f"Tipo sugerido inicialmente: {hinted_type}.\n"
+                                f"{income_instructions}\n"
+                                "Extraia apenas o que estiver visivel com boa confianca. Quando for extrato, preencha statement_rows linha a linha."
+                            ),
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": data_url},
+                        },
+                    ],
+                },
+            ],
+        )
 
     content = response.choices[0].message.content or "{}"
     analysis = _parse_openai_json(content)
     analysis["document_type"] = analysis.get("document_type") or hinted_type
-    analysis["credit_entries"] = _normalize_statement_entries(analysis.get("credit_entries"))
-    analysis["debit_entries"] = _normalize_statement_entries(analysis.get("debit_entries"))
+    analysis["statement_rows"] = _normalize_statement_rows(analysis.get("statement_rows"))
+    derived_credit_entries, derived_debit_entries = _derive_statement_entries(analysis["statement_rows"])
+    analysis["credit_entries"] = derived_credit_entries or _normalize_statement_entries(analysis.get("credit_entries"))
+    analysis["debit_entries"] = derived_debit_entries or _normalize_statement_entries(analysis.get("debit_entries"))
     return _normalize_income_signal(analysis, hinted_type)
 
 
@@ -520,6 +660,7 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
     income_description = (analysis.get("income_description") or "").strip()
     income_confidence = analysis.get("income_confidence")
     income_kind = analysis.get("income_kind")
+    statement_rows = _normalize_statement_rows(analysis.get("statement_rows"))
     credit_entries = _normalize_statement_entries(analysis.get("credit_entries"))
     debit_entries = _normalize_statement_entries(analysis.get("debit_entries"))
     invoice_total = _safe_float(analysis.get("invoice_total"))
@@ -529,6 +670,8 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
     lines: list[str] = []
     if document_type == "extrato":
         lines.append("Recebi seu extrato e consegui identificar alguns sinais importantes.")
+        if statement_rows:
+            lines.append(f"- linhas financeiras identificadas: {len(statement_rows)}")
         if current_balance is not None:
             lines.append(f"- saldo estimado: R${current_balance:.2f}")
         if detected_income is not None:
@@ -549,11 +692,13 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
         if credit_entries:
             lines.extend(["", "Creditos identificados no extrato:"])
             for entry in credit_entries[:3]:
-                lines.append(f"- {entry['description']}: R${entry['amount']:.2f}")
+                prefix = f"{entry['date']} - " if entry.get("date") else ""
+                lines.append(f"- {prefix}{entry['description']}: R${entry['amount']:.2f}")
         if debit_entries:
             lines.extend(["", "Debitos identificados no extrato:"])
             for entry in debit_entries[:3]:
-                lines.append(f"- {entry['description']}: R${entry['amount']:.2f}")
+                prefix = f"{entry['date']} - " if entry.get("date") else ""
+                lines.append(f"- {prefix}{entry['description']}: R${entry['amount']:.2f}")
     elif document_type == "fatura_cartao":
         lines.append("Recebi sua fatura e ja extraí alguns dados importantes.")
         if invoice_total is not None:
@@ -600,6 +745,26 @@ def process_received_document(user_id: int, media_url: str, media_content_type: 
 
     _persist_financial_context(user_id, analysis)
     return _build_analysis_message(analysis, hinted_type)
+
+
+def process_stored_document(
+    document_id: int,
+    user_id: int,
+    media_url: str,
+    media_content_type: str,
+    message_text: str,
+    hinted_type: str,
+) -> None:
+    try:
+        media_bytes = _download_media_bytes(media_url)
+        analysis = _extract_document_analysis(message_text, media_content_type, media_bytes, hinted_type)
+    except Exception:
+        analysis = None
+
+    _update_document_analysis(document_id, analysis)
+
+    if analysis:
+        _persist_financial_context(user_id, analysis)
 
 
 def build_document_receipt_message(tipo_documento: str) -> str:
