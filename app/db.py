@@ -35,6 +35,7 @@ SCHEMA_STATEMENTS = (
     """
     CREATE TABLE IF NOT EXISTS configuracoes_usuario (
         user_id BIGINT PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
+        onboarding_state VARCHAR(50) NOT NULL DEFAULT 'account_snapshot_pending',
         orcamento_onboarding_concluido BOOLEAN NOT NULL DEFAULT FALSE,
         documentos_onboarding_concluido BOOLEAN NOT NULL DEFAULT FALSE,
         aguardando_documento BOOLEAN NOT NULL DEFAULT FALSE,
@@ -98,6 +99,10 @@ SCHEMA_STATEMENTS = (
     """,
     """
     ALTER TABLE configuracoes_usuario
+    ADD COLUMN IF NOT EXISTS onboarding_state VARCHAR(50) NOT NULL DEFAULT 'account_snapshot_pending'
+    """,
+    """
+    ALTER TABLE configuracoes_usuario
     ADD COLUMN IF NOT EXISTS documentos_onboarding_concluido BOOLEAN NOT NULL DEFAULT FALSE
     """,
     """
@@ -107,6 +112,17 @@ SCHEMA_STATEMENTS = (
     """
     ALTER TABLE documentos_financeiros
     ADD COLUMN IF NOT EXISTS extracted_json TEXT NULL
+    """,
+    """
+    UPDATE configuracoes_usuario
+    SET onboarding_state = CASE
+        WHEN documentos_onboarding_concluido THEN 'onboarding_complete'
+        WHEN orcamento_onboarding_concluido THEN 'document_onboarding_pending'
+        ELSE 'account_snapshot_pending'
+    END
+    WHERE onboarding_state IS NULL
+       OR onboarding_state = ''
+       OR onboarding_state = 'account_snapshot_pending'
     """,
     "CREATE INDEX IF NOT EXISTS idx_transacoes_user_id ON transacoes(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_transacoes_user_categoria ON transacoes(user_id, categoria)",

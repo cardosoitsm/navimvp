@@ -14,6 +14,7 @@ from starlette.datastructures import FormData
 
 from app.config import get_settings
 from app.db import get_cursor
+from app.services.onboarding import DOCUMENT_ONBOARDING_PENDING, ONBOARDING_COMPLETE, set_onboarding_state
 
 SKIP_DOCUMENT_WORDS = {"pular", "depois", "agora nao", "nao"}
 START_DOCUMENT_WORDS = {"sim", "s", "quero", "vamos", "enviar"}
@@ -319,15 +320,15 @@ def _extract_pdf_text(media_bytes: bytes) -> str:
 
 def document_invite_prompt() -> str:
     return (
-        "Se voce quiser, eu tambem posso analisar seu extrato e sua fatura para entender melhor sua situacao financeira.\n\n"
-        "Quer enviar esses documentos agora? Responda SIM ou PULAR."
+        "Se fizer sentido para voce, eu tambem posso olhar seu extrato ou sua fatura para entender melhor sua situacao financeira.\n\n"
+        'Se quiser enviar agora, me responda "SIM". Se preferir deixar para depois, pode dizer "PULAR".'
     )
 
 
 def document_upload_prompt() -> str:
     return (
-        "Perfeito. Pode me enviar agora um extrato da conta ou uma fatura do cartao.\n\n"
-        "Pode ser imagem ou PDF. Se preferir deixar para depois, responda PULAR."
+        "Perfeito. Pode me mandar agora um extrato da conta ou uma fatura do cartao.\n\n"
+        'Pode ser imagem ou PDF. Se mudar de ideia, e so responder "PULAR".'
     )
 
 
@@ -372,6 +373,7 @@ def start_document_onboarding(user_id: int) -> None:
             (user_id,),
         )
         conn.commit()
+    set_onboarding_state(user_id, DOCUMENT_ONBOARDING_PENDING)
 
 
 def complete_document_onboarding(user_id: int) -> None:
@@ -387,6 +389,7 @@ def complete_document_onboarding(user_id: int) -> None:
             (user_id,),
         )
         conn.commit()
+    set_onboarding_state(user_id, ONBOARDING_COMPLETE)
 
 
 def get_incoming_media(form: FormData) -> tuple[str, str] | None:
@@ -769,13 +772,13 @@ def process_stored_document(
 
 def build_document_receipt_message(tipo_documento: str) -> str:
     if tipo_documento == "fatura_cartao":
-        detalhe = "Recebi sua fatura. Vou usar essas informacoes para melhorar meus alertas."
+        detalhe = "Recebi sua fatura. Isso vai me ajudar a acompanhar melhor sua situacao."
     elif tipo_documento == "extrato":
-        detalhe = "Recebi seu extrato. Vou usar essas informacoes para entender melhor sua situacao financeira."
+        detalhe = "Recebi seu extrato. Isso me ajuda a entender melhor como esta sua vida financeira."
     else:
-        detalhe = "Recebi seu documento financeiro. Vou considerar esse material nas proximas evolucoes do Navi."
+        detalhe = "Recebi seu documento. Vou guardar esse material para te ajudar melhor daqui para frente."
 
     return (
         f"{detalhe}\n\n"
-        "Por enquanto, eu ja consigo guardar esse documento e seguir com o seu acompanhamento financeiro."
+        "Por enquanto, eu ja consigo guardar isso com seguranca e seguir com o seu acompanhamento."
     )

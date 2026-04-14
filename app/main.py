@@ -35,6 +35,17 @@ from app.services.documents import (
     should_start_document_onboarding,
     start_document_onboarding,
 )
+from app.services.onboarding import (
+    ACCOUNT_SNAPSHOT_PENDING,
+    BUDGET_SETUP_PENDING,
+    ONBOARDING_COMPLETE,
+    account_snapshot_prompt,
+    get_onboarding_state,
+    parse_balance_message,
+    save_current_balance,
+    set_onboarding_state,
+    should_skip_account_snapshot,
+)
 from app.services.chat import process_user_message
 from app.services.summary import listar_ultimas_transacoes, resumo_categoria, resumo_mes
 from app.services.twilio import build_twiml
@@ -92,9 +103,9 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
 
     if novo:
         resposta = (
-            "Ola! Bem-vindo ao Navi!\n\n"
-            "Eu vou te ajudar a controlar seus gastos de forma simples e te avisar quando seus gastos sairem do planejado.\n\n"
-            f"{onboarding_budget_prompt()}"
+            "Ola! Que bom ter voce por aqui.\n\n"
+            "Eu sou o Navi e vou te ajudar a acompanhar seus gastos de um jeito leve, sem complicacao.\n\n"
+            f"{account_snapshot_prompt()}"
         )
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
@@ -119,8 +130,49 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
 
     msg_lower = normalize_text(mensagem)
     intent = detect_intent(mensagem)
+    onboarding_state = get_onboarding_state(user_id)
 
-    if not is_budget_onboarding_completed(user_id):
+    if onboarding_state == ACCOUNT_SNAPSHOT_PENDING:
+        if incoming_media:
+            resposta = _register_document_upload()
+            set_onboarding_state(user_id, BUDGET_SETUP_PENDING)
+            resposta = (
+                f"{resposta}\n\n"
+                "Com isso, eu ja consigo comecar a montar sua fotografia financeira inicial.\n\n"
+                f"{onboarding_budget_prompt()}"
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        balance = parse_balance_message(mensagem)
+        if balance is not None:
+            save_current_balance(user_id, balance)
+            set_onboarding_state(user_id, BUDGET_SETUP_PENDING)
+            resposta = (
+                f"Perfeito. Anotei seu saldo atual em R${balance:.2f}.\n\n"
+                "Isso ja me da um bom ponto de partida para te orientar melhor.\n\n"
+                f"{onboarding_budget_prompt()}"
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        if should_skip_account_snapshot(mensagem):
+            set_onboarding_state(user_id, BUDGET_SETUP_PENDING)
+            resposta = (
+                "Tudo bem. A gente pode voltar para esse retrato inicial depois.\n\n"
+                f"{onboarding_budget_prompt()}"
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        if intent == "document_request":
+            resposta = (
+                "Claro. Pode me enviar o extrato de hoje agora mesmo.\n\n"
+                "Se for mais facil, voce tambem pode simplesmente me dizer o saldo atual da sua conta."
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        resposta = account_snapshot_prompt()
+        return Response(content=build_twiml(resposta), media_type="application/xml")
+
+    if onboarding_state == BUDGET_SETUP_PENDING or not is_budget_onboarding_completed(user_id):
         if is_waiting_for_document(user_id):
             try:
                 if incoming_media:
@@ -128,21 +180,21 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                     complete_document_onboarding(user_id)
                     resposta = (
                         f"{resposta}\n\n"
-                        "Quando quiser, ainda podemos configurar seus limites mensais. "
-                        'Me diga seus limites ou responda "PULAR" para seguir sem isso por enquanto.'
+                        "Se quiser, depois ainda podemos configurar seus limites mensais com calma. "
+                        'Basta me dizer seus limites ou responder "PULAR" para seguir sem isso por enquanto.'
                     )
                     return Response(content=build_twiml(resposta), media_type="application/xml")
                 if should_skip_budget_onboarding(mensagem):
                     mark_budget_onboarding_completed(user_id)
                     resposta = (
-                        "Tudo bem. Vamos deixar seus limites para depois.\n\n"
+                        "Sem problema. Vamos deixar seus limites para depois.\n\n"
                         f"{document_upload_prompt()}"
                     )
                     return Response(content=build_twiml(resposta), media_type="application/xml")
                 resposta = (
-                    "Posso te ajudar com esse documento primeiro.\n\n"
+                    "Claro, podemos comecar por esse documento.\n\n"
                     f"{document_upload_prompt()}\n\n"
-                    'Se preferir voltar aos limites agora, me envie algo como "Farmacia 290, mercado 1200".'
+                    'Se em algum momento quiser voltar aos limites, me mande algo como "Farmacia 290, mercado 1200".'
                 )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
             except HTTPException as exc:
@@ -150,22 +202,22 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             except Exception:
                 resposta = (
                     "Recebi seu documento, mas tive um problema para processa-lo agora. "
-                    "Tente enviar novamente em instantes."
+                    "Se puder, tente de novo daqui a pouco."
                 )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
         if incoming_media:
             _register_document_upload()
             resposta = (
-                "Recebi seu documento e vou guardar esse material.\n\n"
-                f"Antes de continuar, {onboarding_budget_prompt()}"
+                "Recebi seu documento e ja deixei isso guardado aqui.\n\n"
+                f"Antes de seguir, {onboarding_budget_prompt()}"
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
         if intent == "document_request":
             start_document_onboarding(user_id)
             resposta = (
-                "Posso analisar seu extrato sim.\n\n"
+                "Consigo sim. Vamos fazer isso agora.\n\n"
                 f"{document_upload_prompt()}\n\n"
-                'Se preferir, depois voltamos para seus limites. Se quiser pular essa etapa agora, responda "PULAR".'
+                'Se preferir, depois a gente volta para seus limites. E se quiser pular essa etapa por enquanto, responda "PULAR".'
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
         budgets = parse_budget_message(mensagem)
@@ -178,15 +230,15 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             return Response(content=build_twiml(resposta), media_type="application/xml")
         if should_skip_budget_onboarding(mensagem):
             mark_budget_onboarding_completed(user_id)
-            resposta = "Tudo bem. Voce pode configurar seus limites depois. Agora me envie sua primeira transacao."
+            resposta = "Tudo bem. A gente pode configurar seus limites depois. Quando quiser, ja pode me mandar sua primeira transacao."
             return Response(content=build_twiml(resposta), media_type="application/xml")
         resposta = (
-            "Ainda nao consegui registrar seus limites mensais.\n\n"
+            "Ainda nao consegui anotar seus limites mensais.\n\n"
             f"{onboarding_budget_prompt()}"
         )
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
-    if not is_document_onboarding_completed(user_id):
+    if onboarding_state != ONBOARDING_COMPLETE and not is_document_onboarding_completed(user_id):
         if is_waiting_for_document(user_id):
             try:
                 if incoming_media:
@@ -195,7 +247,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                     return Response(content=build_twiml(resposta), media_type="application/xml")
                 if should_skip_document_onboarding(mensagem):
                     complete_document_onboarding(user_id)
-                    resposta = "Tudo bem. Podemos analisar seus documentos depois. Agora ja posso seguir com o seu acompanhamento financeiro."
+                    resposta = "Tudo bem. Podemos olhar esses documentos depois. Por enquanto, sigo te ajudando com o restante."
                     return Response(content=build_twiml(resposta), media_type="application/xml")
                 resposta = document_upload_prompt()
                 return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -204,7 +256,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             except Exception:
                 resposta = (
                     "Recebi seu documento, mas tive um problema para processa-lo agora. "
-                    "Tente enviar novamente em instantes."
+                    "Se puder, tente novamente daqui a pouco."
                 )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
 
@@ -214,7 +266,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             return Response(content=build_twiml(resposta), media_type="application/xml")
         if should_skip_document_onboarding(mensagem):
             complete_document_onboarding(user_id)
-            resposta = "Tudo bem. Podemos analisar seus documentos depois. Agora ja posso seguir com o seu acompanhamento financeiro."
+            resposta = "Tudo bem. Podemos olhar seus documentos depois. Por enquanto, seguimos com o restante."
             return Response(content=build_twiml(resposta), media_type="application/xml")
         resposta = document_invite_prompt()
         return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -224,7 +276,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             resposta = _register_document_upload()
             resposta = (
                 f"{resposta}\n\n"
-                "Se quiser me ajudar a interpretar melhor, voce tambem pode escrever junto se isso e extrato ou fatura."
+                "Se quiser me ajudar a interpretar melhor, voce tambem pode escrever se isso e um extrato ou uma fatura."
             )
         elif intent == "confirm_yes":
             resposta = confirm_pending_transaction(user_id)["resposta"]
@@ -233,7 +285,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         elif intent == "document_request":
             start_document_onboarding(user_id)
             resposta = (
-                "Posso te ajudar com esse documento.\n\n"
+                "Claro. Posso te ajudar com esse documento.\n\n"
                 f"{document_upload_prompt()}"
             )
         elif intent == "recent_transactions":
@@ -255,7 +307,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
     except HTTPException as exc:
         resposta = exc.detail
     except Exception:
-        resposta = "Tive um problema para processar sua mensagem. Tente novamente em instantes."
+        resposta = "Tive um problema para processar sua mensagem agora. Se puder, tente novamente em instantes."
 
     return Response(content=build_twiml(resposta), media_type="application/xml")
 

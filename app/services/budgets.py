@@ -3,6 +3,7 @@ import unicodedata
 from decimal import Decimal, InvalidOperation
 
 from app.db import get_cursor
+from app.services.onboarding import DOCUMENT_ONBOARDING_PENDING, set_onboarding_state
 
 SKIP_BUDGET_WORDS = {"pular", "depois", "agora nao", "agora nao.", "nao"}
 
@@ -66,14 +67,15 @@ def mark_budget_onboarding_completed(user_id: int) -> None:
             (user_id,),
         )
         conn.commit()
+    set_onboarding_state(user_id, DOCUMENT_ONBOARDING_PENDING)
 
 
 def onboarding_budget_prompt() -> str:
     return (
-        "Antes de comecar, quero organizar seu planejamento mensal.\n\n"
-        "Me diga seus limites por categoria, por exemplo:\n"
+        "Antes de comecarmos de verdade, quero entender como voce gostaria de se organizar neste mes.\n\n"
+        "Se quiser, me diga seus limites por categoria. Por exemplo:\n"
         "Farmacia 290, mercado 1200, lazer 1000\n\n"
-        'Se preferir configurar depois, responda "PULAR".'
+        'Se preferir, pode responder "PULAR" e a gente configura isso depois.'
     )
 
 
@@ -136,17 +138,18 @@ def save_budgets(user_id: int, budgets: dict[str, Decimal]) -> None:
             (user_id,),
         )
         conn.commit()
+    set_onboarding_state(user_id, DOCUMENT_ONBOARDING_PENDING)
 
 
 def build_budget_setup_confirmation(budgets: dict[str, Decimal]) -> str:
-    linhas = ["Perfeito. Registrei seus limites mensais:", ""]
+    linhas = ["Perfeito. Ja deixei seus limites mensais anotados aqui comigo:", ""]
     for categoria, valor in budgets.items():
         linhas.append(f"- {categoria}: R${float(valor):.2f}")
     linhas.extend(
         [
             "",
-            "Agora vou acompanhar esses limites e te avisar quando voce estiver se aproximando deles.",
-            "Pode me enviar sua primeira transacao quando quiser.",
+            "Vou acompanhar isso com voce e te avisar quando algum limite estiver ficando apertado.",
+            "Quando quiser, ja pode me mandar sua primeira transacao.",
         ]
     )
     return "\n".join(linhas)
