@@ -26,6 +26,15 @@ QUERY_BUDGET_PATTERNS = (
     "limite",
 )
 
+DOCUMENT_PATTERNS = (
+    "extrato",
+    "fatura",
+    "pdf",
+    "documento",
+    "arquivo",
+    "boleto do cartao",
+)
+
 
 def normalize_text(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", text.lower().strip())
@@ -43,6 +52,8 @@ def detect_intent(text: str) -> str:
         return "recent_transactions"
     if any(pattern in normalized for pattern in QUERY_BUDGET_PATTERNS):
         return "budget_status"
+    if any(pattern in normalized for pattern in DOCUMENT_PATTERNS):
+        return "document_request"
     if "quanto gastei" in normalized:
         return "summary"
     return "transaction"

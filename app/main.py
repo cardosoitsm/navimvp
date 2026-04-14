@@ -98,10 +98,36 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         )
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
+    def _register_document_upload() -> str:
+        media_url, media_content_type = incoming_media  # type: ignore[misc]
+        document_id, hinted_type, resposta = register_received_document(
+            user_id,
+            media_url,
+            media_content_type,
+            mensagem,
+        )
+        background_tasks.add_task(
+            process_stored_document,
+            document_id,
+            user_id,
+            media_url,
+            media_content_type,
+            mensagem,
+            hinted_type,
+        )
+        return resposta
+
     msg_lower = normalize_text(mensagem)
     intent = detect_intent(mensagem)
 
     if not is_budget_onboarding_completed(user_id):
+        if incoming_media:
+            _register_document_upload()
+            resposta = (
+                "Recebi seu documento e vou guardar esse material.\n\n"
+                f"Antes de continuar, {onboarding_budget_prompt()}"
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
         budgets = parse_budget_message(mensagem)
         if budgets:
             save_budgets(user_id, budgets)
@@ -124,22 +150,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         if is_waiting_for_document(user_id):
             try:
                 if incoming_media:
-                    media_url, media_content_type = incoming_media
-                    document_id, hinted_type, resposta = register_received_document(
-                        user_id,
-                        media_url,
-                        media_content_type,
-                        mensagem,
-                    )
-                    background_tasks.add_task(
-                        process_stored_document,
-                        document_id,
-                        user_id,
-                        media_url,
-                        media_content_type,
-                        mensagem,
-                        hinted_type,
-                    )
+                    resposta = _register_document_upload()
                     complete_document_onboarding(user_id)
                     return Response(content=build_twiml(resposta), media_type="application/xml")
                 if should_skip_document_onboarding(mensagem):
@@ -169,10 +180,22 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
     try:
-        if intent == "confirm_yes":
+        if incoming_media:
+            resposta = _register_document_upload()
+            resposta = (
+                f"{resposta}\n\n"
+                "Se quiser me ajudar a interpretar melhor, voce tambem pode escrever junto se isso e extrato ou fatura."
+            )
+        elif intent == "confirm_yes":
             resposta = confirm_pending_transaction(user_id)["resposta"]
         elif intent == "confirm_no":
             resposta = reject_pending_transaction(user_id)
+        elif intent == "document_request":
+            start_document_onboarding(user_id)
+            resposta = (
+                "Posso te ajudar com esse documento.\n\n"
+                f"{document_upload_prompt()}"
+            )
         elif intent == "recent_transactions":
             resposta = listar_ultimas_transacoes(user_id)
         elif intent == "budget_status":

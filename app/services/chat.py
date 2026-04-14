@@ -124,7 +124,13 @@ def process_user_message(text: str, user_id: int) -> dict[str, str]:
     except (json.JSONDecodeError, ValueError):
         raise HTTPException(
             status_code=422,
-            detail="Nao consegui entender a transacao. Tente algo como: Gastei R$50 em Uber.",
+            detail=(
+                "Nao consegui entender isso como uma transacao.\n\n"
+                "Voce pode tentar de novo de um destes jeitos:\n"
+                '- "Gastei R$50 em Uber"\n'
+                '- "Quanto gastei no mes?"\n'
+                '- enviar um extrato ou uma fatura em imagem/PDF'
+            ),
         )
     except HTTPException:
         raise
@@ -137,7 +143,13 @@ def process_user_message(text: str, user_id: int) -> dict[str, str]:
     if not transactions:
         raise HTTPException(
             status_code=422,
-            detail="Nao encontrei uma transacao valida na sua mensagem.",
+            detail=(
+                "Nao encontrei uma transacao valida na sua mensagem.\n\n"
+                "Se voce quiser, eu posso te ajudar de outras formas tambem:\n"
+                '- registrar um gasto, como "Gastei R$50 em Uber"\n'
+                '- resumir seus gastos do mes\n'
+                '- receber um extrato ou uma fatura em imagem/PDF'
+            ),
         )
 
     normalized_transactions = [_normalize_transaction(text, transaction) for transaction in transactions]
