@@ -121,11 +121,51 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
     intent = detect_intent(mensagem)
 
     if not is_budget_onboarding_completed(user_id):
+        if is_waiting_for_document(user_id):
+            try:
+                if incoming_media:
+                    resposta = _register_document_upload()
+                    complete_document_onboarding(user_id)
+                    resposta = (
+                        f"{resposta}\n\n"
+                        "Quando quiser, ainda podemos configurar seus limites mensais. "
+                        'Me diga seus limites ou responda "PULAR" para seguir sem isso por enquanto.'
+                    )
+                    return Response(content=build_twiml(resposta), media_type="application/xml")
+                if should_skip_budget_onboarding(mensagem):
+                    mark_budget_onboarding_completed(user_id)
+                    resposta = (
+                        "Tudo bem. Vamos deixar seus limites para depois.\n\n"
+                        f"{document_upload_prompt()}"
+                    )
+                    return Response(content=build_twiml(resposta), media_type="application/xml")
+                resposta = (
+                    "Posso te ajudar com esse documento primeiro.\n\n"
+                    f"{document_upload_prompt()}\n\n"
+                    'Se preferir voltar aos limites agora, me envie algo como "Farmacia 290, mercado 1200".'
+                )
+                return Response(content=build_twiml(resposta), media_type="application/xml")
+            except HTTPException as exc:
+                return Response(content=build_twiml(exc.detail), media_type="application/xml")
+            except Exception:
+                resposta = (
+                    "Recebi seu documento, mas tive um problema para processa-lo agora. "
+                    "Tente enviar novamente em instantes."
+                )
+                return Response(content=build_twiml(resposta), media_type="application/xml")
         if incoming_media:
             _register_document_upload()
             resposta = (
                 "Recebi seu documento e vou guardar esse material.\n\n"
                 f"Antes de continuar, {onboarding_budget_prompt()}"
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+        if intent == "document_request":
+            start_document_onboarding(user_id)
+            resposta = (
+                "Posso analisar seu extrato sim.\n\n"
+                f"{document_upload_prompt()}\n\n"
+                'Se preferir, depois voltamos para seus limites. Se quiser pular essa etapa agora, responda "PULAR".'
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
         budgets = parse_budget_message(mensagem)
