@@ -590,6 +590,55 @@ def _find_best_card_match(user_id: int, message_text: str) -> dict[str, Any] | N
     return best_card if best_score >= 1.2 else None
 
 
+def _load_invoice_from_recent_documents(user_id: int, selected_card: dict[str, Any]) -> tuple[float | None, Any, float | None] | None:
+    cards = get_cards(user_id)
+    if not cards:
+        return None
+
+    selected_order = int(selected_card.get("ordem") or 0)
+    if selected_order <= 0:
+        return None
+
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            """
+            SELECT extracted_json
+            FROM documentos_financeiros
+            WHERE user_id = %s
+              AND tipo_documento = 'fatura_cartao'
+              AND extracted_json IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (user_id, max(len(cards), selected_order)),
+        )
+        rows = cursor.fetchall()
+
+    if not rows:
+        return None
+
+    ordered_payloads = list(reversed(rows))
+    index = selected_order - 1
+    if index >= len(ordered_payloads):
+        return None
+
+    try:
+        payload = json.loads(ordered_payloads[index][0])
+    except (TypeError, json.JSONDecodeError, IndexError):
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    invoice_total = _safe_float(payload.get("invoice_total"))
+    if invoice_total is None:
+        return None
+
+    due_date = payload.get("due_date")
+    minimum_payment = _safe_float(payload.get("minimum_payment"))
+    return invoice_total, due_date, minimum_payment
+
+
 def build_invoice_status_message(user_id: int, message_text: str) -> str:
     cards = get_cards(user_id)
     if not cards:
@@ -647,6 +696,17 @@ def build_invoice_status_message(user_id: int, message_text: str) -> str:
     )
 
     if not row:
+        document_fallback = _load_invoice_from_recent_documents(user_id, selected_card)
+        if document_fallback:
+            valor_total, vencimento, pagamento_minimo = document_fallback
+            resposta = [f"A última fatura que tenho salva do {card_name} está em {format_brl(valor_total)}."]
+            vencimento_formatado = format_ptbr_date(vencimento)
+            if vencimento_formatado:
+                resposta.append(f"O vencimento identificado é {vencimento_formatado}.")
+            if pagamento_minimo is not None:
+                resposta.append(f"O pagamento mínimo dela ficou em {format_brl(pagamento_minimo)}.")
+            return "\n\n".join(resposta)
+
         return (
             f"Ainda não encontrei uma fatura salva para o {card_name}.\n\n"
             f"Se quiser, pode me mandar a fatura atual do {card_name} que eu organizo isso por aqui."
@@ -1011,3 +1071,172 @@ def build_document_receipt_message(tipo_documento: str) -> str:
         f"{detalhe}\n\n"
         "Por enquanto, eu ja consigo guardar isso com seguranca e seguir com o seu acompanhamento."
     )
+
+
+def _load_recent_invoice_document_state_v2(user_id: int, selected_card: dict[str, Any]) -> dict[str, Any] | None:
+    cards = get_cards(user_id)
+    if not cards:
+        return None
+
+    selected_order = int(selected_card.get("ordem") or 0)
+    if selected_order <= 0:
+        return None
+
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            """
+            SELECT extracted_json, status_processamento, created_at
+            FROM documentos_financeiros
+            WHERE user_id = %s
+              AND tipo_documento = 'fatura_cartao'
+            ORDER BY created_at ASC
+            """,
+            (user_id,),
+        )
+        rows = cursor.fetchall()
+
+    if not rows:
+        return None
+
+    card_name = _normalize_text(str(selected_card.get("nome_cartao") or ""))
+    card_tokens = [token for token in re.split(r"\s+", card_name) if len(token) > 2]
+    parsed_rows: list[dict[str, Any]] = []
+    for extracted_json, status, created_at in rows:
+        payload = None
+        if extracted_json:
+            try:
+                parsed = json.loads(extracted_json)
+                if isinstance(parsed, dict):
+                    payload = parsed
+            except (TypeError, json.JSONDecodeError):
+                payload = None
+
+        parsed_rows.append(
+            {
+                "payload": payload,
+                "status": str(status or "").strip().lower(),
+                "created_at": created_at,
+            }
+        )
+
+    for item in reversed(parsed_rows):
+        payload = item.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        issuer = _normalize_text(str(payload.get("issuer") or ""))
+        summary = _normalize_text(str(payload.get("summary") or ""))
+        searchable = " ".join(part for part in [issuer, summary] if part).strip()
+        if searchable and any(token in searchable for token in card_tokens):
+            return item
+
+    recent_batch = parsed_rows[-len(cards) :]
+    index = selected_order - 1
+    if 0 <= index < len(recent_batch):
+        return recent_batch[index]
+
+    return None
+
+
+def _build_invoice_status_response_v2(
+    card_name: str,
+    valor_total: float,
+    vencimento: Any,
+    pagamento_minimo: float | None,
+) -> str:
+    resposta = [f"A última fatura que tenho salva do {card_name} está em {format_brl(valor_total)}."]
+    vencimento_formatado = format_ptbr_date(vencimento)
+    if vencimento_formatado:
+        resposta.append(f"O vencimento identificado é {vencimento_formatado}.")
+    if pagamento_minimo is not None:
+        resposta.append(f"O pagamento mínimo dela ficou em {format_brl(pagamento_minimo)}.")
+    return "\n\n".join(resposta)
+
+
+def build_invoice_status_message(user_id: int, message_text: str) -> str:
+    cards = get_cards(user_id)
+    if not cards:
+        return "Ainda não encontrei cartões cadastrados por aqui. Se quiser, eu posso te ajudar a cadastrar seus cartões primeiro."
+
+    selected_card = _find_best_card_match(user_id, message_text)
+    if not selected_card and len(cards) == 1:
+        selected_card = cards[0]
+
+    if not selected_card:
+        card_names = ", ".join(str(card["nome_cartao"]) for card in cards[:4])
+        return (
+            "Consigo sim. Só me diga de qual cartão você quer consultar a fatura.\n\n"
+            f"Hoje eu tenho estes cadastrados por aqui: {card_names}."
+        )
+
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            """
+            SELECT valor_total, vencimento, pagamento_minimo
+            FROM faturas_cartao
+            WHERE user_id = %s
+              AND cartao_id = %s
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (user_id, selected_card["id"]),
+        )
+        row = cursor.fetchone()
+        if not row:
+            normalized_name = _normalize_text(str(selected_card["nome_cartao"]))
+            tokens = [token for token in re.split(r"\s+", normalized_name) if len(token) > 3]
+            for token in tokens:
+                cursor.execute(
+                    """
+                    SELECT valor_total, vencimento, pagamento_minimo
+                    FROM faturas_cartao
+                    WHERE user_id = %s
+                      AND emissor IS NOT NULL
+                      AND LOWER(emissor) LIKE %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (user_id, f"%{token}%"),
+                )
+                row = cursor.fetchone()
+                if row:
+                    break
+
+    card_name = str(selected_card["nome_cartao"])
+    _save_conversation_focus(
+        user_id,
+        "invoice_status",
+        int(selected_card["id"]) if selected_card.get("id") is not None else None,
+    )
+
+    if not row:
+        document_fallback = _load_invoice_from_recent_documents(user_id, selected_card)
+        if document_fallback:
+            valor_total, vencimento, pagamento_minimo = document_fallback
+            return _build_invoice_status_response_v2(card_name, valor_total, vencimento, pagamento_minimo)
+
+        document_state = _load_recent_invoice_document_state_v2(user_id, selected_card)
+        if document_state:
+            payload = document_state.get("payload")
+            if isinstance(payload, dict):
+                invoice_total = _safe_float(payload.get("invoice_total"))
+                if invoice_total is not None:
+                    due_date = payload.get("due_date")
+                    minimum_payment = _safe_float(payload.get("minimum_payment"))
+                    return _build_invoice_status_response_v2(card_name, invoice_total, due_date, minimum_payment)
+
+            status = str(document_state.get("status") or "").strip().lower()
+            if status in {"recebido", "processando"}:
+                return (
+                    f"Eu já recebi a fatura do {card_name} e ainda estou terminando de analisar esse arquivo.\n\n"
+                    "Se quiser, me chama de novo em instantes que eu te devolvo os detalhes."
+                )
+
+        return (
+            f"Ainda não encontrei uma fatura salva para o {card_name}.\n\n"
+            f"Se quiser, pode me mandar a fatura atual do {card_name} que eu organizo isso por aqui."
+        )
+
+    valor_total = float(row[0])
+    vencimento = row[1]
+    pagamento_minimo = float(row[2]) if row[2] is not None else None
+    return _build_invoice_status_response_v2(card_name, valor_total, vencimento, pagamento_minimo)
