@@ -449,8 +449,18 @@ def advance_card_progress(user_id: int) -> dict[str, int | str | None] | None:
 
 
 def _parse_decimal_value(raw_amount: str) -> Decimal:
-    cleaned = raw_amount.replace("r$", "").replace(" ", "").replace(".", "").replace(",", ".").strip()
-    return Decimal(cleaned)
+    cleaned = raw_amount.lower().replace("r$", "").replace(" ", "").strip()
+    multiplier = Decimal("1")
+
+    if cleaned.endswith("k"):
+        multiplier = Decimal("1000")
+        cleaned = cleaned[:-1]
+    elif cleaned.endswith("m"):
+        multiplier = Decimal("1000000")
+        cleaned = cleaned[:-1]
+
+    cleaned = cleaned.replace(".", "").replace(",", ".")
+    return Decimal(cleaned) * multiplier
 
 
 def parse_card_details_message(text: str) -> tuple[int | None, float | None]:
@@ -458,7 +468,10 @@ def parse_card_details_message(text: str) -> tuple[int | None, float | None]:
     day_match = re.search(r"\b([1-9]|[12][0-9]|3[01])\b", normalized)
     day = int(day_match.group(1)) if day_match else None
 
-    amount_matches = re.findall(r"(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d{2})?|\d+(?:,\d{2})?)", normalized)
+    amount_matches = re.findall(
+        r"(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d{2})?[km]?|\d+(?:,\d{2})?[km]?)",
+        normalized,
+    )
     limit_value = None
     if amount_matches:
         try:
@@ -504,22 +517,18 @@ def parse_card_names_flexible(text: str, expected_count: int) -> list[str]:
     if not cleaned_text:
         return []
 
-    normalized = _normalize_text(cleaned_text)
-    prefix_patterns = (
-        "meu cartao",
-        "cartao",
-        "nome",
-        "o nome e",
-        "meus cartoes sao",
-        "os nomes sao",
-        "nomes",
-        "meus cartoes",
-        "cartoes",
-    )
-    for prefix in prefix_patterns:
-        if normalized.startswith(prefix):
-            cleaned_text = cleaned_text[len(prefix):].strip(" .:-")
-            break
+    if ":" in cleaned_text:
+        left_side, right_side = cleaned_text.split(":", 1)
+        normalized_left = _normalize_text(left_side)
+        if "cart" in normalized_left or "nome" in normalized_left:
+            cleaned_text = right_side.strip(" .:-")
+    else:
+        cleaned_text = re.sub(
+            r"^(?:meus?\s+cart[oõ]es?\s+s[aã]o|os\s+cart[oõ]es?\s+s[aã]o|cart[oõ]es?\s+s[aã]o|os\s+nomes?\s+s[aã]o|nomes?\s+s[aã]o|meus?\s+cart[oõ]es?|cart[oõ]es?|o\s+nome\s+[ée]|nome)\s*",
+            "",
+            cleaned_text,
+            flags=re.IGNORECASE,
+        ).strip(" .:-")
 
     if expected_count == 1:
         candidate = cleaned_text.strip(" .:-")
