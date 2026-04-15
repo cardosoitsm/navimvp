@@ -520,6 +520,7 @@ def _store_document(
     tipo_documento: str,
     media_content_type: str,
     media_url: str,
+    card_id: int | None = None,
 ) -> int:
     with get_cursor() as (conn, cursor):
         cursor.execute(
@@ -529,12 +530,13 @@ def _store_document(
                 tipo_documento,
                 origem_midia,
                 media_url,
-                status_processamento
+                status_processamento,
+                cartao_id
             )
-            VALUES (%s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
-            (user_id, tipo_documento, media_content_type, media_url, "recebido"),
+            (user_id, tipo_documento, media_content_type, media_url, "recebido", card_id),
         )
         document_id = int(cursor.fetchone()[0])
         conn.commit()
@@ -547,6 +549,7 @@ def register_received_document(
     media_content_type: str,
     message_text: str,
     forced_type: str | None = None,
+    card_id: int | None = None,
 ) -> tuple[int, str, str]:
     if media_content_type not in SUPPORTED_MEDIA_TYPES:
         raise HTTPException(
@@ -558,7 +561,7 @@ def register_received_document(
         )
 
     hinted_type = forced_type or infer_document_type(message_text, media_content_type)
-    document_id = _store_document(user_id, hinted_type, media_content_type, media_url)
+    document_id = _store_document(user_id, hinted_type, media_content_type, media_url, card_id)
     return document_id, hinted_type, build_document_receipt_message(hinted_type)
 
 
@@ -1074,6 +1077,36 @@ def build_document_receipt_message(tipo_documento: str) -> str:
 
 
 def _load_recent_invoice_document_state_v2(user_id: int, selected_card: dict[str, Any]) -> dict[str, Any] | None:
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            """
+            SELECT extracted_json, status_processamento, created_at
+            FROM documentos_financeiros
+            WHERE user_id = %s
+              AND tipo_documento = 'fatura_cartao'
+              AND cartao_id = %s
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (user_id, selected_card["id"]),
+        )
+        direct_row = cursor.fetchone()
+        if direct_row:
+            extracted_json, status, created_at = direct_row
+            payload = None
+            if extracted_json:
+                try:
+                    parsed = json.loads(extracted_json)
+                    if isinstance(parsed, dict):
+                        payload = parsed
+                except (TypeError, json.JSONDecodeError):
+                    payload = None
+            return {
+                "payload": payload,
+                "status": str(status or "").strip().lower(),
+                "created_at": created_at,
+            }
+
     cards = get_cards(user_id)
     if not cards:
         return None
@@ -1230,6 +1263,24 @@ def build_invoice_status_message(user_id: int, message_text: str) -> str:
                     f"Eu já recebi a fatura do {card_name} e ainda estou terminando de analisar esse arquivo.\n\n"
                     "Se quiser, me chama de novo em instantes que eu te devolvo os detalhes."
                 )
+
+        with get_cursor() as (_, cursor):
+            cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM documentos_financeiros
+                WHERE user_id = %s
+                  AND tipo_documento = 'fatura_cartao'
+                """,
+                (user_id,),
+            )
+            any_invoice_count = cursor.fetchone()
+
+        if any_invoice_count and int(any_invoice_count[0] or 0) > 0:
+            return (
+                f"Eu já recebi pelo menos uma fatura por aqui, mas ainda não consegui associar com segurança a do {card_name}.\n\n"
+                "Se quiser, me chama de novo em instantes. Se isso continuar, eu ajusto essa associação com você."
+            )
 
         return (
             f"Ainda não encontrei uma fatura salva para o {card_name}.\n\n"

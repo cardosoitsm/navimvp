@@ -154,6 +154,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             media_content_type,
             mensagem,
             forced_type,
+            int(current_card["id"]) if current_card and current_card.get("id") is not None else None,
         )
         background_tasks.add_task(
             process_stored_document,

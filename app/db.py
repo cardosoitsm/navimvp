@@ -175,6 +175,10 @@ SCHEMA_STATEMENTS = (
     ADD COLUMN IF NOT EXISTS extracted_json TEXT NULL
     """,
     """
+    ALTER TABLE documentos_financeiros
+    ADD COLUMN IF NOT EXISTS cartao_id BIGINT NULL
+    """,
+    """
     UPDATE configuracoes_usuario
     SET onboarding_state = CASE
         WHEN documentos_onboarding_concluido THEN 'onboarding_complete'
