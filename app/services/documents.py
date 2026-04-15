@@ -14,7 +14,12 @@ from starlette.datastructures import FormData
 
 from app.config import get_settings
 from app.db import get_cursor
-from app.services.onboarding import DOCUMENT_ONBOARDING_PENDING, ONBOARDING_COMPLETE, set_onboarding_state
+from app.services.onboarding import (
+    DOCUMENT_ONBOARDING_PENDING,
+    ONBOARDING_COMPLETE,
+    get_card_names,
+    set_onboarding_state,
+)
 
 SKIP_DOCUMENT_WORDS = {"pular", "depois", "agora nao", "nao"}
 START_DOCUMENT_WORDS = {"sim", "s", "quero", "vamos", "enviar"}
@@ -333,10 +338,25 @@ def has_document_type(user_id: int, tipo_documento: str) -> bool:
         return cursor.fetchone() is not None
 
 
+def _card_invoice_message(user_id: int) -> str:
+    card_names = get_card_names(user_id)
+    if not card_names:
+        return ""
+    if len(card_names) == 1:
+        return f"a fatura do {card_names[0]}"
+    return f"as faturas dos seus cartoes. Podemos comecar pela do {card_names[0]}"
+
+
 def document_invite_prompt(user_id: int | None = None) -> str:
     if user_id and has_document_type(user_id, "extrato"):
+        invoice_target = _card_invoice_message(user_id)
+        if not invoice_target:
+            return (
+                "Ja recebi seu extrato e, com isso, ja tenho uma boa base inicial para te acompanhar.\n\n"
+                "Se depois fizer sentido incluir alguma fatura de cartao, e so me avisar."
+            )
         return (
-            "Ja recebi seu extrato, entao o proximo passo mais util e olhar sua fatura do cartao.\n\n"
+            f"Ja recebi seu extrato, entao o proximo passo mais util e olhar {invoice_target}.\n\n"
             'Se quiser enviar agora, me responda "SIM". Se preferir deixar para depois, pode dizer "PULAR".'
         )
 
@@ -348,8 +368,14 @@ def document_invite_prompt(user_id: int | None = None) -> str:
 
 def document_upload_prompt(user_id: int | None = None) -> str:
     if user_id and has_document_type(user_id, "extrato"):
+        invoice_target = _card_invoice_message(user_id)
+        if not invoice_target:
+            return (
+                "Se quiser incluir uma fatura de cartao agora, pode me mandar por aqui.\n\n"
+                'Pode ser imagem ou PDF. Se preferir deixar isso para depois, e so responder "PULAR".'
+            )
         return (
-            "Perfeito. Como eu ja tenho seu extrato, agora pode me mandar a fatura do cartao.\n\n"
+            f"Perfeito. Como eu ja tenho seu extrato, agora pode me mandar {invoice_target}.\n\n"
             'Pode ser imagem ou PDF. Se mudar de ideia, e so responder "PULAR".'
         )
 

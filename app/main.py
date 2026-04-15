@@ -29,6 +29,7 @@ from app.services.documents import (
     document_invite_prompt,
     document_upload_prompt,
     get_incoming_media,
+    has_document_type,
     is_document_onboarding_completed,
     is_waiting_for_document,
     process_stored_document,
@@ -40,13 +41,26 @@ from app.services.documents import (
 from app.services.onboarding import (
     ACCOUNT_SNAPSHOT_PENDING,
     BUDGET_SETUP_PENDING,
+    CARD_COUNT_PENDING,
+    CARD_NAMES_PENDING,
+    DOCUMENT_ONBOARDING_PENDING,
+    build_card_setup_confirmation,
     ONBOARDING_COMPLETE,
     account_snapshot_prompt,
+    card_count_prompt,
+    card_names_prompt,
+    get_card_names,
     get_onboarding_state,
+    get_pending_card_total,
+    parse_card_count,
+    parse_card_names,
     parse_balance_message,
+    save_card_count,
+    save_card_names,
     save_current_balance,
     set_onboarding_state,
     should_skip_account_snapshot,
+    should_skip_card_setup,
 )
 from app.services.chat import process_user_message
 from app.services.summary import listar_ultimas_transacoes, resumo_categoria, resumo_mes
@@ -188,7 +202,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                     )
                     return Response(content=build_twiml(resposta), media_type="application/xml")
                 if should_skip_budget_onboarding(mensagem):
-                    mark_budget_onboarding_completed(user_id)
+                    mark_budget_onboarding_completed(user_id, None)
                     resposta = (
                         "Sem problema. Vamos deixar seus limites para depois.\n\n"
                         f"{document_upload_prompt(user_id)}"
@@ -225,18 +239,21 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             return Response(content=build_twiml(resposta), media_type="application/xml")
         budgets = parse_budget_message(mensagem)
         if budgets:
-            save_budgets(user_id, budgets)
+            save_budgets(user_id, budgets, CARD_COUNT_PENDING)
             resposta = (
                 f"{build_budget_setup_confirmation(budgets)}\n\n"
-                f"{document_invite_prompt(user_id)}"
+                f"{card_count_prompt()}"
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
         if is_budget_edit_request(mensagem):
             resposta = budget_edit_prompt()
             return Response(content=build_twiml(resposta), media_type="application/xml")
         if should_skip_budget_onboarding(mensagem):
-            mark_budget_onboarding_completed(user_id)
-            resposta = "Tudo bem. A gente pode configurar seus limites depois. Quando quiser, ja pode me mandar sua primeira transacao."
+            mark_budget_onboarding_completed(user_id, CARD_COUNT_PENDING)
+            resposta = (
+                "Tudo bem. A gente pode configurar seus limites depois.\n\n"
+                f"{card_count_prompt()}"
+            )
             return Response(content=build_twiml(resposta), media_type="application/xml")
         resposta = (
             "Ainda nao consegui anotar seus limites mensais.\n\n"
@@ -244,10 +261,102 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         )
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
+    if onboarding_state == CARD_COUNT_PENDING:
+        if should_skip_card_setup(mensagem):
+            save_card_count(user_id, 0)
+            if has_document_type(user_id, "extrato"):
+                set_onboarding_state(user_id, ONBOARDING_COMPLETE)
+                resposta = (
+                    "Tudo bem. Como eu ja tenho seu extrato, isso ja me da uma boa base inicial para te acompanhar.\n\n"
+                    "Se depois voce quiser cadastrar algum cartao, eu organizo isso com voce."
+                )
+            else:
+                set_onboarding_state(user_id, DOCUMENT_ONBOARDING_PENDING)
+                resposta = (
+                    "Tudo bem. A gente pode cadastrar seus cartoes depois.\n\n"
+                    f"{document_invite_prompt(user_id)}"
+                )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        card_total = parse_card_count(mensagem)
+        if card_total is not None:
+            save_card_count(user_id, card_total)
+            if card_total <= 0:
+                if has_document_type(user_id, "extrato"):
+                    set_onboarding_state(user_id, ONBOARDING_COMPLETE)
+                    resposta = (
+                        "Perfeito. Entendi que voce nao quer acompanhar cartoes por agora.\n\n"
+                        "Como eu ja tenho seu extrato, ja consigo seguir com uma boa base inicial."
+                    )
+                else:
+                    set_onboarding_state(user_id, DOCUMENT_ONBOARDING_PENDING)
+                    resposta = (
+                        "Perfeito. Entendi que voce nao quer acompanhar cartoes por agora.\n\n"
+                        f"{document_invite_prompt(user_id)}"
+                    )
+                return Response(content=build_twiml(resposta), media_type="application/xml")
+
+            set_onboarding_state(user_id, CARD_NAMES_PENDING)
+            resposta = (
+                "Perfeito. Quero deixar isso organizado do jeito que faz sentido para voce.\n\n"
+                f"{card_names_prompt(card_total)}"
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        if intent == "document_request":
+            resposta = (
+                "Consigo sim. Antes, so me conta quantos cartoes voce quer acompanhar comigo, que eu organizo isso certinho.\n\n"
+                f"{card_count_prompt()}"
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        resposta = card_count_prompt()
+        return Response(content=build_twiml(resposta), media_type="application/xml")
+
+    if onboarding_state == CARD_NAMES_PENDING:
+        expected_count = get_pending_card_total(user_id)
+        if expected_count <= 0:
+            set_onboarding_state(user_id, DOCUMENT_ONBOARDING_PENDING)
+            resposta = document_invite_prompt(user_id)
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        if should_skip_card_setup(mensagem):
+            save_card_count(user_id, 0)
+            if has_document_type(user_id, "extrato"):
+                set_onboarding_state(user_id, ONBOARDING_COMPLETE)
+                resposta = (
+                    "Tudo bem. A gente pode deixar os cartoes para depois.\n\n"
+                    "Como eu ja tenho seu extrato, isso ja me ajuda bastante por enquanto."
+                )
+            else:
+                set_onboarding_state(user_id, DOCUMENT_ONBOARDING_PENDING)
+                resposta = (
+                    "Tudo bem. A gente pode deixar os cartoes para depois.\n\n"
+                    f"{document_invite_prompt(user_id)}"
+                )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        card_names = parse_card_names(mensagem, expected_count)
+        if card_names:
+            save_card_names(user_id, card_names)
+            set_onboarding_state(user_id, DOCUMENT_ONBOARDING_PENDING)
+            confirmed_names = get_card_names(user_id)
+            resposta = (
+                f"{build_card_setup_confirmation(confirmed_names)}\n\n"
+                f"{document_invite_prompt(user_id)}"
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        resposta = (
+            "Quero deixar os nomes dos seus cartoes do jeito que faca sentido para voce.\n\n"
+            f"{card_names_prompt(expected_count)}"
+        )
+        return Response(content=build_twiml(resposta), media_type="application/xml")
+
     if onboarding_state != ONBOARDING_COMPLETE and not is_document_onboarding_completed(user_id):
         budgets = parse_budget_message(mensagem)
         if budgets:
-            save_budgets(user_id, budgets)
+            save_budgets(user_id, budgets, None)
             resposta = (
                 "Perfeito. Atualizei seus limites.\n\n"
                 f"{build_budget_setup_confirmation(budgets)}\n\n"
@@ -260,6 +369,19 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 "Depois que voce me mandar os novos valores, eu atualizo tudo por aqui."
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
+        if incoming_media:
+            try:
+                resposta = _register_document_upload()
+                complete_document_onboarding(user_id)
+                return Response(content=build_twiml(resposta), media_type="application/xml")
+            except HTTPException as exc:
+                return Response(content=build_twiml(exc.detail), media_type="application/xml")
+            except Exception:
+                resposta = (
+                    "Recebi seu documento, mas tive um problema para processa-lo agora. "
+                    "Se puder, tente novamente daqui a pouco."
+                )
+                return Response(content=build_twiml(resposta), media_type="application/xml")
         if is_waiting_for_document(user_id):
             try:
                 if incoming_media:

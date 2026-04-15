@@ -3,7 +3,7 @@ import unicodedata
 from decimal import Decimal, InvalidOperation
 
 from app.db import get_cursor
-from app.services.onboarding import DOCUMENT_ONBOARDING_PENDING, set_onboarding_state
+from app.services.onboarding import CARD_COUNT_PENDING, set_onboarding_state
 
 SKIP_BUDGET_WORDS = {"pular", "depois", "agora nao", "agora nao.", "nao"}
 BUDGET_EDIT_WORDS = {"alterar", "adicionar", "ajustar", "mudar", "editar", "revisar", "atualizar"}
@@ -57,7 +57,7 @@ def is_budget_onboarding_completed(user_id: int) -> bool:
     return bool(result and result[0])
 
 
-def mark_budget_onboarding_completed(user_id: int) -> None:
+def mark_budget_onboarding_completed(user_id: int, next_state: str | None = CARD_COUNT_PENDING) -> None:
     ensure_user_settings(user_id)
     with get_cursor() as (conn, cursor):
         cursor.execute(
@@ -69,7 +69,8 @@ def mark_budget_onboarding_completed(user_id: int) -> None:
             (user_id,),
         )
         conn.commit()
-    set_onboarding_state(user_id, DOCUMENT_ONBOARDING_PENDING)
+    if next_state:
+        set_onboarding_state(user_id, next_state)
 
 
 def onboarding_budget_prompt() -> str:
@@ -133,7 +134,11 @@ def budget_edit_prompt() -> str:
     )
 
 
-def save_budgets(user_id: int, budgets: dict[str, Decimal]) -> None:
+def save_budgets(
+    user_id: int,
+    budgets: dict[str, Decimal],
+    next_state: str | None = CARD_COUNT_PENDING,
+) -> None:
     ensure_user_settings(user_id)
     with get_cursor() as (conn, cursor):
         for categoria, valor in budgets.items():
@@ -155,7 +160,8 @@ def save_budgets(user_id: int, budgets: dict[str, Decimal]) -> None:
             (user_id,),
         )
         conn.commit()
-    set_onboarding_state(user_id, DOCUMENT_ONBOARDING_PENDING)
+    if next_state:
+        set_onboarding_state(user_id, next_state)
 
 
 def build_budget_setup_confirmation(budgets: dict[str, Decimal]) -> str:

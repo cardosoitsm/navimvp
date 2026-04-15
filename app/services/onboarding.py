@@ -5,11 +5,47 @@ from app.db import get_cursor
 
 ACCOUNT_SNAPSHOT_PENDING = "account_snapshot_pending"
 BUDGET_SETUP_PENDING = "budget_setup_pending"
+CARD_COUNT_PENDING = "card_count_pending"
+CARD_NAMES_PENDING = "card_names_pending"
 DOCUMENT_ONBOARDING_PENDING = "document_onboarding_pending"
 ONBOARDING_COMPLETE = "onboarding_complete"
 
 SKIP_SNAPSHOT_WORDS = {"pular", "depois", "agora nao", "nao"}
-BALANCE_KEYWORDS = ("saldo", "conta", "disponivel", "tenho", "hoje")
+SKIP_CARD_SETUP_WORDS = {"pular", "depois", "agora nao", "nao", "nenhum", "0"}
+BALANCE_KEYWORDS = (
+    "saldo",
+    "saldo atual",
+    "saldo da conta",
+    "na conta",
+    "em conta",
+    "disponivel",
+    "meu saldo",
+)
+NON_BALANCE_KEYWORDS = (
+    "cartao",
+    "cartoes",
+    "fatura",
+    "limite",
+    "orcamento",
+    "parcela",
+    "emprestimo",
+    "gastei",
+    "gasto",
+    "recebi",
+    "transacao",
+)
+CARD_NUMBER_WORDS = {
+    "zero": 0,
+    "nenhum": 0,
+    "um": 1,
+    "uma": 1,
+    "dois": 2,
+    "duas": 2,
+    "tres": 3,
+    "três": 3,
+    "quatro": 4,
+    "cinco": 5,
+}
 
 
 def _normalize_text(text: str) -> str:
@@ -29,23 +65,203 @@ def should_skip_account_snapshot(text: str) -> bool:
     return _normalize_text(text) in SKIP_SNAPSHOT_WORDS
 
 
+def should_skip_card_setup(text: str) -> bool:
+    normalized = _normalize_text(text)
+    if normalized in SKIP_CARD_SETUP_WORDS:
+        return True
+    return "nao tenho cartao" in normalized or "nao quero cadastrar cartao" in normalized
+
+
 def parse_balance_message(text: str) -> float | None:
     normalized = _normalize_text(text)
-    amount_match = re.search(r"(?:r\$\s*)?(-?\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})|-?\d+(?:,\d{2})?)", normalized)
-    if not amount_match:
+    if any(keyword in normalized for keyword in NON_BALANCE_KEYWORDS):
         return None
 
-    if not any(keyword in normalized for keyword in BALANCE_KEYWORDS):
-        compact = normalized.replace(" ", "")
-        if compact != amount_match.group(0).replace(" ", ""):
+    amount_matches = re.findall(r"(?:r\$\s*)?(-?\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})|-?\d+(?:,\d{2})?)", normalized)
+    if len(amount_matches) != 1:
+        return None
+
+    amount_text = amount_matches[0]
+    has_balance_context = any(keyword in normalized for keyword in BALANCE_KEYWORDS)
+    compact_message = re.sub(r"\s+", "", normalized)
+    compact_amount = re.sub(r"\s+", "", amount_text)
+
+    if not has_balance_context:
+        if compact_message not in {
+            compact_amount,
+            f"r${compact_amount}",
+            f"saldo{compact_amount}",
+            f"saldor${compact_amount}",
+        }:
             return None
 
-    raw_amount = amount_match.group(1).replace(" ", "").replace(".", "").replace(",", ".")
+    raw_amount = amount_text.replace(" ", "").replace(".", "").replace(",", ".")
     try:
         value = float(raw_amount)
     except ValueError:
         return None
     return value if value >= 0 else None
+
+
+def card_count_prompt() -> str:
+    return (
+        "Agora me conta uma coisa importante: quantos cartoes voce quer acompanhar comigo?\n\n"
+        "Pode me responder algo como 1, 2 ou 3.\n\n"
+        'Se preferir deixar isso para depois, pode responder "PULAR".'
+    )
+
+
+def card_names_prompt(total: int) -> str:
+    if total <= 1:
+        return (
+            "Perfeito. Como voce quer chamar esse cartao por aqui?\n\n"
+            "Pode ser o nome do banco ou um apelido que faca sentido para voce."
+        )
+
+    return (
+        f"Perfeito. Entao vamos cadastrar esses {total} cartoes.\n\n"
+        "Me diga como voce quer chamar cada um deles, de preferencia na ordem, separado por virgula.\n"
+        "Por exemplo: Nubank, Itau, Cartao da Casa"
+    )
+
+
+def parse_card_count(text: str) -> int | None:
+    normalized = _normalize_text(text)
+    if not normalized:
+        return None
+
+    if "nao tenho cartao" in normalized or normalized in {"nenhum", "0"}:
+        return 0
+
+    digit_match = re.search(r"\b(\d{1,2})\b", normalized)
+    if digit_match:
+        return int(digit_match.group(1))
+
+    for word, value in CARD_NUMBER_WORDS.items():
+        if re.search(rf"\b{re.escape(word)}\b", normalized):
+            return value
+    return None
+
+
+def get_pending_card_total(user_id: int) -> int:
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            """
+            SELECT pending_card_total
+            FROM configuracoes_usuario
+            WHERE user_id = %s
+            """,
+            (user_id,),
+        )
+        result = cursor.fetchone()
+    return int(result[0]) if result and result[0] is not None else 0
+
+
+def save_card_count(user_id: int, total: int) -> None:
+    with get_cursor() as (conn, cursor):
+        cursor.execute(
+            """
+            UPDATE configuracoes_usuario
+            SET pending_card_total = %s,
+                pending_card_index = 0,
+                updated_at = NOW()
+            WHERE user_id = %s
+            """,
+            (max(total, 0), user_id),
+        )
+
+        if total <= 0:
+            cursor.execute("DELETE FROM cartoes_usuario WHERE user_id = %s", (user_id,))
+
+        conn.commit()
+
+
+def parse_card_names(text: str, expected_count: int) -> list[str]:
+    if expected_count <= 0:
+        return []
+
+    cleaned_text = text.strip()
+    if not cleaned_text:
+        return []
+
+    if expected_count == 1:
+        candidate = re.sub(
+            r"^(meu\s+cartao|meu\s+cartão|cartao|cartão|nome|o nome e|o nome é)\s+",
+            "",
+            cleaned_text,
+            flags=re.IGNORECASE,
+        ).strip(" .:-")
+        return [candidate] if candidate else []
+
+    parts = re.split(r"\s*(?:,|;|\n|\be\b)\s*", cleaned_text, flags=re.IGNORECASE)
+    normalized_parts: list[str] = []
+    for index, part in enumerate(parts):
+        candidate = part.strip(" .:-")
+        if not candidate:
+            continue
+        if index == 0:
+            candidate = re.sub(
+                r"^(os nomes sao|os nomes são|nomes|meus cartoes|meus cartões|cartoes|cartões)\s+",
+                "",
+                candidate,
+                flags=re.IGNORECASE,
+            ).strip(" .:-")
+        if candidate:
+            normalized_parts.append(candidate)
+
+    if len(normalized_parts) != expected_count:
+        return []
+    return normalized_parts
+
+
+def save_card_names(user_id: int, names: list[str]) -> None:
+    with get_cursor() as (conn, cursor):
+        cursor.execute("DELETE FROM cartoes_usuario WHERE user_id = %s", (user_id,))
+        for ordem, nome in enumerate(names, start=1):
+            cursor.execute(
+                """
+                INSERT INTO cartoes_usuario (user_id, nome_cartao, ordem)
+                VALUES (%s, %s, %s)
+                """,
+                (user_id, nome.strip(), ordem),
+            )
+        cursor.execute(
+            """
+            UPDATE configuracoes_usuario
+            SET pending_card_total = %s,
+                pending_card_index = 0,
+                updated_at = NOW()
+            WHERE user_id = %s
+            """,
+            (len(names), user_id),
+        )
+        conn.commit()
+
+
+def get_card_names(user_id: int) -> list[str]:
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            """
+            SELECT nome_cartao
+            FROM cartoes_usuario
+            WHERE user_id = %s AND ativo = TRUE
+            ORDER BY ordem ASC
+            """,
+            (user_id,),
+        )
+        rows = cursor.fetchall()
+    return [str(row[0]) for row in rows]
+
+
+def build_card_setup_confirmation(names: list[str]) -> str:
+    if not names:
+        return "Tudo bem. A gente pode cadastrar seus cartoes depois."
+
+    if len(names) == 1:
+        return f"Perfeito. Vou acompanhar esse cartao por aqui como {names[0]}."
+
+    listed_names = ", ".join(names[:-1]) + f" e {names[-1]}"
+    return f"Perfeito. Vou acompanhar esses cartoes por aqui como {listed_names}."
 
 
 def get_onboarding_state(user_id: int) -> str:
@@ -69,7 +285,7 @@ def get_onboarding_state(user_id: int) -> str:
     if document_done:
         return ONBOARDING_COMPLETE
     if budget_done:
-        return DOCUMENT_ONBOARDING_PENDING
+        return CARD_COUNT_PENDING
     return ACCOUNT_SNAPSHOT_PENDING
 
 
@@ -105,4 +321,3 @@ def save_current_balance(user_id: int, balance: float) -> None:
             (user_id, balance),
         )
         conn.commit()
-

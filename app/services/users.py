@@ -79,6 +79,7 @@ def delete_user_account(email: str) -> bool:
         tables = (
             "documentos_financeiros",
             "faturas_cartao",
+            "cartoes_usuario",
             "orcamento_alertas",
             "orcamentos",
             "perfil_financeiro",
