@@ -25,6 +25,7 @@ from app.services.conversation import (
     reject_pending_transaction,
 )
 from app.services.documents import (
+    build_invoice_status_message,
     complete_document_onboarding,
     document_invite_prompt,
     document_upload_prompt,
@@ -144,6 +145,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
 
     def _register_document_upload(forced_type: str | None = None) -> str:
         media_url, media_content_type = incoming_media  # type: ignore[misc]
+        current_card = get_current_card(user_id) if forced_type == "fatura_cartao" else None
         document_id, hinted_type, resposta = register_received_document(
             user_id,
             media_url,
@@ -159,6 +161,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             media_content_type,
             mensagem,
             hinted_type,
+            int(current_card["id"]) if current_card and current_card.get("id") is not None else None,
         )
         return resposta
 
@@ -677,6 +680,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 "Claro. Posso te ajudar com esse documento.\n\n"
                 f"{document_upload_prompt(user_id)}"
             )
+        elif intent == "invoice_status":
+            resposta = build_invoice_status_message(user_id, mensagem)
         elif intent == "card_setup_request":
             set_onboarding_state(user_id, CARD_COUNT_PENDING)
             resposta = (

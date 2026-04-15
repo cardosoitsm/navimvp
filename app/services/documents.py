@@ -1,4 +1,5 @@
 import base64
+from difflib import SequenceMatcher
 import json
 import re
 import unicodedata
@@ -18,6 +19,7 @@ from app.services.onboarding import (
     CARD_INVOICE_PENDING,
     DOCUMENT_ONBOARDING_PENDING,
     ONBOARDING_COMPLETE,
+    get_cards,
     get_current_card,
     get_card_names,
     set_onboarding_state,
@@ -528,6 +530,102 @@ def register_received_document(
     return document_id, hinted_type, build_document_receipt_message(hinted_type)
 
 
+def _find_best_card_match(user_id: int, message_text: str) -> dict[str, Any] | None:
+    normalized_message = _normalize_text(message_text)
+    cards = get_cards(user_id)
+    if not cards:
+        return None
+
+    best_card: dict[str, Any] | None = None
+    best_score = 0.0
+    for card in cards:
+        card_name = str(card.get("nome_cartao") or "").strip()
+        if not card_name:
+            continue
+        normalized_name = _normalize_text(card_name)
+        score = 0.0
+        if normalized_name and normalized_name in normalized_message:
+            score += 4.0
+
+        tokens = [token for token in re.split(r"\s+", normalized_name) if len(token) > 2]
+        score += sum(1.0 for token in tokens if token in normalized_message)
+        score += SequenceMatcher(None, normalized_name, normalized_message).ratio()
+
+        if score > best_score:
+            best_score = score
+            best_card = card
+
+    return best_card if best_score >= 1.2 else None
+
+
+def build_invoice_status_message(user_id: int, message_text: str) -> str:
+    cards = get_cards(user_id)
+    if not cards:
+        return "Ainda nao encontrei cartoes cadastrados por aqui. Se quiser, eu posso te ajudar a cadastrar seus cartoes primeiro."
+
+    selected_card = _find_best_card_match(user_id, message_text)
+    if not selected_card and len(cards) == 1:
+        selected_card = cards[0]
+
+    if not selected_card:
+        card_names = ", ".join(str(card["nome_cartao"]) for card in cards[:4])
+        return (
+            "Consigo sim. So me diga de qual cartao voce quer consultar a fatura.\n\n"
+            f"Hoje eu tenho estes cadastrados por aqui: {card_names}."
+        )
+
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            """
+            SELECT valor_total, vencimento, pagamento_minimo
+            FROM faturas_cartao
+            WHERE user_id = %s
+              AND cartao_id = %s
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (user_id, selected_card["id"]),
+        )
+        row = cursor.fetchone()
+        if not row:
+            normalized_name = _normalize_text(str(selected_card["nome_cartao"]))
+            tokens = [token for token in re.split(r"\s+", normalized_name) if len(token) > 3]
+            for token in tokens:
+                cursor.execute(
+                    """
+                    SELECT valor_total, vencimento, pagamento_minimo
+                    FROM faturas_cartao
+                    WHERE user_id = %s
+                      AND emissor IS NOT NULL
+                      AND LOWER(emissor) LIKE %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (user_id, f"%{token}%"),
+                )
+                row = cursor.fetchone()
+                if row:
+                    break
+
+    card_name = str(selected_card["nome_cartao"])
+    if not row:
+        return (
+            f"Ainda nao encontrei uma fatura salva para o {card_name}.\n\n"
+            f"Se quiser, pode me mandar a fatura atual do {card_name} que eu organizo isso por aqui."
+        )
+
+    valor_total = float(row[0])
+    vencimento = row[1]
+    pagamento_minimo = float(row[2]) if row[2] is not None else None
+
+    resposta = [f"A ultima fatura que tenho salva do {card_name} esta em R${valor_total:.2f}."]
+    if vencimento:
+        resposta.append(f"O vencimento identificado e {vencimento}.")
+    if pagamento_minimo is not None:
+        resposta.append(f"O pagamento minimo dela ficou em R${pagamento_minimo:.2f}.")
+    return "\n\n".join(resposta)
+
+
 def _download_media_bytes(media_url: str) -> bytes:
     settings = get_settings()
     response = requests.get(
@@ -648,7 +746,7 @@ def _update_document_analysis(document_id: int, analysis: dict[str, Any] | None)
         conn.commit()
 
 
-def _persist_financial_context(user_id: int, analysis: dict[str, Any]) -> None:
+def _persist_financial_context(user_id: int, analysis: dict[str, Any], card_id: int | None = None) -> None:
     document_type = analysis.get("document_type")
     current_balance = _safe_float(analysis.get("current_balance"))
     detected_income = _safe_float(analysis.get("detected_income"))
@@ -698,6 +796,7 @@ def _persist_financial_context(user_id: int, analysis: dict[str, Any]) -> None:
                 """
                 INSERT INTO faturas_cartao (
                     user_id,
+                    cartao_id,
                     valor_total,
                     vencimento,
                     pagamento_minimo,
@@ -707,13 +806,14 @@ def _persist_financial_context(user_id: int, analysis: dict[str, Any]) -> None:
                 VALUES (
                     %s,
                     %s,
+                    %s,
                     NULLIF(%s, '')::date,
                     %s,
                     %s,
                     DATE_TRUNC('month', NOW())::date
                 )
                 """,
-                (user_id, invoice_total, due_date or "", minimum_payment, issuer),
+                (user_id, card_id, invoice_total, due_date or "", minimum_payment, issuer),
             )
 
         conn.commit()
@@ -821,6 +921,7 @@ def process_stored_document(
     media_content_type: str,
     message_text: str,
     hinted_type: str,
+    card_id: int | None = None,
 ) -> None:
     try:
         media_bytes = _download_media_bytes(media_url)
@@ -831,7 +932,7 @@ def process_stored_document(
     _update_document_analysis(document_id, analysis)
 
     if analysis:
-        _persist_financial_context(user_id, analysis)
+        _persist_financial_context(user_id, analysis, card_id)
 
 
 def build_document_receipt_message(tipo_documento: str) -> str:

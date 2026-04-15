@@ -26,6 +26,18 @@ QUERY_BUDGET_PATTERNS = (
     "limite",
 )
 
+QUERY_INVOICE_PATTERNS = (
+    "qual o valor da minha fatura",
+    "qual o valor da fatura",
+    "quanto esta a fatura",
+    "quanto está a fatura",
+    "valor da fatura",
+    "minha fatura do",
+    "fatura do santander",
+    "fatura do bradesco",
+    "fatura do nubank",
+)
+
 DOCUMENT_PATTERNS = (
     "extrato",
     "fatura",
@@ -64,6 +76,8 @@ def detect_intent(text: str) -> str:
         return "recent_transactions"
     if any(pattern in normalized for pattern in QUERY_BUDGET_PATTERNS):
         return "budget_status"
+    if any(pattern in normalized for pattern in QUERY_INVOICE_PATTERNS):
+        return "invoice_status"
     if any(pattern in normalized for pattern in CARD_SETUP_PATTERNS):
         return "card_setup_request"
     if any(pattern in normalized for pattern in DOCUMENT_PATTERNS):
