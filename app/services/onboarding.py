@@ -72,6 +72,33 @@ def should_skip_card_setup(text: str) -> bool:
     return "nao tenho cartao" in normalized or "nao quero cadastrar cartao" in normalized
 
 
+def _table_exists(cursor, table_name: str) -> bool:
+    cursor.execute(
+        """
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = %s
+        """,
+        (table_name,),
+    )
+    return cursor.fetchone() is not None
+
+
+def _column_exists(cursor, table_name: str, column_name: str) -> bool:
+    cursor.execute(
+        """
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = %s
+          AND column_name = %s
+        """,
+        (table_name, column_name),
+    )
+    return cursor.fetchone() is not None
+
+
 def parse_balance_message(text: str) -> float | None:
     normalized = _normalize_text(text)
     if any(keyword in normalized for keyword in NON_BALANCE_KEYWORDS):
@@ -145,34 +172,70 @@ def parse_card_count(text: str) -> int | None:
 
 def get_pending_card_total(user_id: int) -> int:
     with get_cursor() as (_, cursor):
-        cursor.execute(
-            """
-            SELECT pending_card_total
-            FROM configuracoes_usuario
-            WHERE user_id = %s
-            """,
-            (user_id,),
-        )
-        result = cursor.fetchone()
-    return int(result[0]) if result and result[0] is not None else 0
+        if _column_exists(cursor, "configuracoes_usuario", "pending_card_total"):
+            cursor.execute(
+                """
+                SELECT pending_card_total
+                FROM configuracoes_usuario
+                WHERE user_id = %s
+                """,
+                (user_id,),
+            )
+            result = cursor.fetchone()
+            if result and result[0] is not None and int(result[0]) > 0:
+                return int(result[0])
+
+        if _table_exists(cursor, "cartoes_usuario"):
+            cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM cartoes_usuario
+                WHERE user_id = %s AND ativo = FALSE
+                """,
+                (user_id,),
+            )
+            result = cursor.fetchone()
+            return int(result[0]) if result and result[0] is not None else 0
+
+    return 0
 
 
 def save_card_count(user_id: int, total: int) -> None:
+    total = max(total, 0)
     with get_cursor() as (conn, cursor):
-        cursor.execute(
-            """
-            UPDATE configuracoes_usuario
-            SET pending_card_total = %s,
-                pending_card_index = 0,
-                updated_at = NOW()
-            WHERE user_id = %s
-            """,
-            (max(total, 0), user_id),
-        )
+        if _column_exists(cursor, "configuracoes_usuario", "pending_card_total") and _column_exists(
+            cursor, "configuracoes_usuario", "pending_card_index"
+        ):
+            cursor.execute(
+                """
+                UPDATE configuracoes_usuario
+                SET pending_card_total = %s,
+                    pending_card_index = 0,
+                    updated_at = NOW()
+                WHERE user_id = %s
+                """,
+                (total, user_id),
+            )
+        else:
+            cursor.execute(
+                """
+                UPDATE configuracoes_usuario
+                SET updated_at = NOW()
+                WHERE user_id = %s
+                """,
+                (user_id,),
+            )
 
-        if total <= 0:
+        if _table_exists(cursor, "cartoes_usuario"):
             cursor.execute("DELETE FROM cartoes_usuario WHERE user_id = %s", (user_id,))
-
+            for ordem in range(1, total + 1):
+                cursor.execute(
+                    """
+                    INSERT INTO cartoes_usuario (user_id, nome_cartao, ordem, ativo)
+                    VALUES (%s, %s, %s, FALSE)
+                    """,
+                    (user_id, f"Pendente {ordem}", ordem),
+                )
         conn.commit()
 
 
@@ -216,25 +279,38 @@ def parse_card_names(text: str, expected_count: int) -> list[str]:
 
 def save_card_names(user_id: int, names: list[str]) -> None:
     with get_cursor() as (conn, cursor):
-        cursor.execute("DELETE FROM cartoes_usuario WHERE user_id = %s", (user_id,))
-        for ordem, nome in enumerate(names, start=1):
+        if _table_exists(cursor, "cartoes_usuario"):
+            cursor.execute("DELETE FROM cartoes_usuario WHERE user_id = %s", (user_id,))
+            for ordem, nome in enumerate(names, start=1):
+                cursor.execute(
+                    """
+                    INSERT INTO cartoes_usuario (user_id, nome_cartao, ordem)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (user_id, nome.strip(), ordem),
+                )
+        if _column_exists(cursor, "configuracoes_usuario", "pending_card_total") and _column_exists(
+            cursor, "configuracoes_usuario", "pending_card_index"
+        ):
             cursor.execute(
                 """
-                INSERT INTO cartoes_usuario (user_id, nome_cartao, ordem)
-                VALUES (%s, %s, %s)
+                UPDATE configuracoes_usuario
+                SET pending_card_total = %s,
+                    pending_card_index = 0,
+                    updated_at = NOW()
+                WHERE user_id = %s
                 """,
-                (user_id, nome.strip(), ordem),
+                (len(names), user_id),
             )
-        cursor.execute(
-            """
-            UPDATE configuracoes_usuario
-            SET pending_card_total = %s,
-                pending_card_index = 0,
-                updated_at = NOW()
-            WHERE user_id = %s
-            """,
-            (len(names), user_id),
-        )
+        else:
+            cursor.execute(
+                """
+                UPDATE configuracoes_usuario
+                SET updated_at = NOW()
+                WHERE user_id = %s
+                """,
+                (user_id,),
+            )
         conn.commit()
 
 
