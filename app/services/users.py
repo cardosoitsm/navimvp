@@ -6,10 +6,34 @@ from app.db import get_cursor
 from app.services.budgets import ensure_user_settings
 
 AUTO_PASSWORD_PREFIX = "whatsapp-user:"
+RESETTABLE_USER_TABLES = (
+    "documentos_financeiros",
+    "faturas_cartao",
+    "cartoes_usuario",
+    "orcamento_alertas",
+    "orcamentos",
+    "perfil_financeiro",
+    "configuracoes_usuario",
+    "confirmacoes_pendentes",
+    "transacoes",
+)
 
 
 def _auto_password(numero_limpo: str) -> str:
     return hash_password(f"{AUTO_PASSWORD_PREFIX}{numero_limpo}")
+
+
+def _table_exists(cursor, table_name: str) -> bool:
+    cursor.execute(
+        """
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = %s
+        """,
+        (table_name,),
+    )
+    return cursor.fetchone() is not None
 
 
 def get_or_create_whatsapp_user(numero: str) -> tuple[int, bool]:
@@ -76,19 +100,15 @@ def delete_user_account(email: str) -> bool:
             return False
 
         user_id = int(result[0])
-        tables = (
-            "documentos_financeiros",
-            "faturas_cartao",
-            "cartoes_usuario",
-            "orcamento_alertas",
-            "orcamentos",
-            "perfil_financeiro",
-            "configuracoes_usuario",
-            "confirmacoes_pendentes",
-            "transacoes",
-        )
+        existing_tables = {
+            table_name
+            for table_name in RESETTABLE_USER_TABLES
+            if _table_exists(cursor, table_name)
+        }
 
-        for table_name in tables:
+        for table_name in RESETTABLE_USER_TABLES:
+            if table_name not in existing_tables:
+                continue
             cursor.execute(f"DELETE FROM {table_name} WHERE user_id = %s", (user_id,))
 
         cursor.execute("DELETE FROM usuarios WHERE id = %s", (user_id,))
