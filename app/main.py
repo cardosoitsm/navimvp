@@ -484,5 +484,10 @@ def admin_reset_user(payload: AdminResetRequest, request: Request) -> dict[str, 
     if admin_key != settings.secret_key:
         raise HTTPException(status_code=403, detail="Chave administrativa invalida")
 
-    deleted = delete_user_account(payload.email)
-    return {"deleted": deleted}
+    try:
+        deleted = delete_user_account(payload.email)
+        return {"deleted": deleted}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Falha ao limpar usuario: {exc}") from exc

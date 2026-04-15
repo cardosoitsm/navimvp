@@ -6,17 +6,6 @@ from app.db import get_cursor
 from app.services.budgets import ensure_user_settings
 
 AUTO_PASSWORD_PREFIX = "whatsapp-user:"
-RESETTABLE_USER_TABLES = (
-    "documentos_financeiros",
-    "faturas_cartao",
-    "cartoes_usuario",
-    "orcamento_alertas",
-    "orcamentos",
-    "perfil_financeiro",
-    "configuracoes_usuario",
-    "confirmacoes_pendentes",
-    "transacoes",
-)
 
 
 def _auto_password(numero_limpo: str) -> str:
@@ -34,6 +23,19 @@ def _table_exists(cursor, table_name: str) -> bool:
         (table_name,),
     )
     return cursor.fetchone() is not None
+
+
+def _tables_with_user_id(cursor) -> list[str]:
+    cursor.execute(
+        """
+        SELECT table_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND column_name = 'user_id'
+        ORDER BY table_name
+        """
+    )
+    return [str(row[0]) for row in cursor.fetchall()]
 
 
 def get_or_create_whatsapp_user(numero: str) -> tuple[int, bool]:
@@ -94,23 +96,27 @@ def authenticate_user(email: str, senha: str) -> int:
 
 def delete_user_account(email: str) -> bool:
     with get_cursor() as (conn, cursor):
-        cursor.execute("SELECT id FROM usuarios WHERE email = %s", (email,))
-        result = cursor.fetchone()
-        if not result:
-            return False
+        try:
+            cursor.execute("SELECT id FROM usuarios WHERE email = %s", (email,))
+            result = cursor.fetchone()
+            if not result:
+                return False
 
-        user_id = int(result[0])
-        existing_tables = {
-            table_name
-            for table_name in RESETTABLE_USER_TABLES
-            if _table_exists(cursor, table_name)
-        }
+            user_id = int(result[0])
+            dynamic_tables = [
+                table_name
+                for table_name in _tables_with_user_id(cursor)
+                if table_name != "usuarios" and _table_exists(cursor, table_name)
+            ]
 
-        for table_name in RESETTABLE_USER_TABLES:
-            if table_name not in existing_tables:
-                continue
-            cursor.execute(f"DELETE FROM {table_name} WHERE user_id = %s", (user_id,))
+            for table_name in dynamic_tables:
+                cursor.execute(f"DELETE FROM {table_name} WHERE user_id = %s", (user_id,))
 
-        cursor.execute("DELETE FROM usuarios WHERE id = %s", (user_id,))
-        conn.commit()
-        return True
+            if _table_exists(cursor, "usuarios"):
+                cursor.execute("DELETE FROM usuarios WHERE id = %s", (user_id,))
+
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
