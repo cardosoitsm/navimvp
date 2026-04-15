@@ -149,6 +149,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
     msg_lower = normalize_text(mensagem)
     intent = detect_intent(mensagem)
     onboarding_state = get_onboarding_state(user_id)
+    existing_card_names = get_card_names(user_id)
 
     if onboarding_state == ACCOUNT_SNAPSHOT_PENDING:
         if incoming_media:
@@ -451,6 +452,27 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             return Response(content=build_twiml(resposta), media_type="application/xml")
         resposta = document_invite_prompt(user_id)
         return Response(content=build_twiml(resposta), media_type="application/xml")
+
+    if onboarding_state == ONBOARDING_COMPLETE and has_document_type(user_id, "extrato") and not existing_card_names:
+        card_total = parse_card_count(mensagem)
+        if card_total is not None:
+            try:
+                save_card_count(user_id, card_total)
+                if card_total <= 0:
+                    resposta = (
+                        "Perfeito. Entendi que voce nao quer acompanhar cartoes por agora.\n\n"
+                        "Se depois mudar de ideia, eu organizo isso com voce."
+                    )
+                else:
+                    set_onboarding_state(user_id, CARD_NAMES_PENDING)
+                    resposta = card_names_prompt(card_total)
+                return Response(content=build_twiml(resposta), media_type="application/xml")
+            except Exception:
+                resposta = (
+                    "Entendi que voce quer cadastrar cartoes, mas tive um problema para salvar essa etapa agora.\n\n"
+                    f"{card_count_prompt()}"
+                )
+                return Response(content=build_twiml(resposta), media_type="application/xml")
 
     try:
         if incoming_media:
