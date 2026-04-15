@@ -36,6 +36,8 @@ SCHEMA_STATEMENTS = (
     CREATE TABLE IF NOT EXISTS configuracoes_usuario (
         user_id BIGINT PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
         onboarding_state VARCHAR(50) NOT NULL DEFAULT 'account_snapshot_pending',
+        pending_card_total INTEGER NOT NULL DEFAULT 0,
+        pending_card_index INTEGER NOT NULL DEFAULT 0,
         orcamento_onboarding_concluido BOOLEAN NOT NULL DEFAULT FALSE,
         documentos_onboarding_concluido BOOLEAN NOT NULL DEFAULT FALSE,
         aguardando_documento BOOLEAN NOT NULL DEFAULT FALSE,
@@ -89,6 +91,7 @@ SCHEMA_STATEMENTS = (
     CREATE TABLE IF NOT EXISTS faturas_cartao (
         id BIGSERIAL PRIMARY KEY,
         user_id BIGINT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        cartao_id BIGINT NULL,
         valor_total NUMERIC(12, 2) NOT NULL,
         vencimento DATE NULL,
         pagamento_minimo NUMERIC(12, 2) NULL,
@@ -98,8 +101,41 @@ SCHEMA_STATEMENTS = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS cartoes_usuario (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        nome_cartao VARCHAR(100) NOT NULL,
+        ordem INTEGER NOT NULL,
+        dia_melhor_compra INTEGER NULL,
+        limite_credito NUMERIC(12, 2) NULL,
+        ativo BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (user_id, ordem)
+    )
+    """,
+    """
     ALTER TABLE configuracoes_usuario
     ADD COLUMN IF NOT EXISTS onboarding_state VARCHAR(50) NOT NULL DEFAULT 'account_snapshot_pending'
+    """,
+    """
+    ALTER TABLE configuracoes_usuario
+    ADD COLUMN IF NOT EXISTS pending_card_total INTEGER NOT NULL DEFAULT 0
+    """,
+    """
+    ALTER TABLE configuracoes_usuario
+    ADD COLUMN IF NOT EXISTS pending_card_index INTEGER NOT NULL DEFAULT 0
+    """,
+    """
+    ALTER TABLE faturas_cartao
+    ADD COLUMN IF NOT EXISTS cartao_id BIGINT NULL
+    """,
+    """
+    ALTER TABLE cartoes_usuario
+    ADD COLUMN IF NOT EXISTS dia_melhor_compra INTEGER NULL
+    """,
+    """
+    ALTER TABLE cartoes_usuario
+    ADD COLUMN IF NOT EXISTS limite_credito NUMERIC(12, 2) NULL
     """,
     """
     ALTER TABLE configuracoes_usuario
@@ -117,7 +153,7 @@ SCHEMA_STATEMENTS = (
     UPDATE configuracoes_usuario
     SET onboarding_state = CASE
         WHEN documentos_onboarding_concluido THEN 'onboarding_complete'
-        WHEN orcamento_onboarding_concluido THEN 'document_onboarding_pending'
+        WHEN orcamento_onboarding_concluido THEN 'card_count_pending'
         ELSE 'account_snapshot_pending'
     END
     WHERE onboarding_state IS NULL

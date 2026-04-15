@@ -42,23 +42,32 @@ from app.services.onboarding import (
     ACCOUNT_SNAPSHOT_PENDING,
     BUDGET_SETUP_PENDING,
     CARD_COUNT_PENDING,
+    CARD_DETAILS_PENDING,
+    CARD_INVOICE_PENDING,
     CARD_NAMES_PENDING,
     DOCUMENT_ONBOARDING_PENDING,
+    advance_card_progress,
     build_card_setup_confirmation,
     ONBOARDING_COMPLETE,
     account_snapshot_prompt,
     card_count_prompt,
+    card_details_prompt,
+    card_invoice_prompt,
     card_names_prompt,
+    get_current_card,
     get_card_names,
     get_onboarding_state,
     get_pending_card_total,
     parse_card_count,
     parse_card_names,
     parse_card_names_flexible,
+    parse_card_details_message,
     parse_balance_message,
+    save_current_card_details,
     save_card_count,
     save_card_names,
     save_current_balance,
+    set_pending_card_index,
     set_onboarding_state,
     should_skip_account_snapshot,
     should_skip_card_setup,
@@ -153,11 +162,11 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
 
     if onboarding_state == ACCOUNT_SNAPSHOT_PENDING:
         if incoming_media:
-            resposta = _register_document_upload("extrato")
+            _register_document_upload("extrato")
             set_onboarding_state(user_id, BUDGET_SETUP_PENDING)
             resposta = (
-                f"{resposta}\n\n"
-                "Com isso, eu ja consigo comecar a montar sua fotografia financeira inicial.\n\n"
+                "Recebi seu extrato e ja deixei esse arquivo salvo aqui na sua base financeira.\n\n"
+                "Com ele, eu consigo montar seu ponto de partida e usar essas informacoes nas proximas analises.\n\n"
                 f"{onboarding_budget_prompt()}"
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -363,11 +372,12 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             card_names = parse_card_names_flexible(mensagem, expected_count)
             if card_names:
                 save_card_names(user_id, card_names)
-                set_onboarding_state(user_id, DOCUMENT_ONBOARDING_PENDING)
+                set_pending_card_index(user_id, 0)
+                set_onboarding_state(user_id, CARD_DETAILS_PENDING)
                 confirmed_names = get_card_names(user_id) or card_names
                 resposta = (
                     f"{build_card_setup_confirmation(confirmed_names)}\n\n"
-                    f"{document_invite_prompt(user_id)}"
+                    f"{card_details_prompt(confirmed_names[0])}"
                 )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
 
@@ -382,6 +392,121 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             resposta = (
                 "Tive um problema para salvar os nomes dos seus cartoes agora. "
                 "Se puder, tente me mandar os nomes novamente separados por virgula."
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+    if onboarding_state == CARD_DETAILS_PENDING:
+        try:
+            current_card = get_current_card(user_id)
+            if not current_card:
+                set_pending_card_index(user_id, 0)
+                set_onboarding_state(user_id, CARD_INVOICE_PENDING)
+                resposta = document_upload_prompt(user_id)
+                return Response(content=build_twiml(resposta), media_type="application/xml")
+
+            if should_skip_card_setup(mensagem):
+                next_card = advance_card_progress(user_id)
+                if next_card:
+                    resposta = (
+                        f"Tudo bem. A gente pode preencher esses detalhes do {current_card['nome_cartao']} depois.\n\n"
+                        f"{card_details_prompt(str(next_card['nome_cartao']))}"
+                    )
+                else:
+                    set_pending_card_index(user_id, 0)
+                    set_onboarding_state(user_id, CARD_INVOICE_PENDING)
+                    resposta = (
+                        "Tudo bem. Se precisar, a gente completa esses detalhes de compra mais tarde.\n\n"
+                        f"{document_upload_prompt(user_id)}"
+                    )
+                return Response(content=build_twiml(resposta), media_type="application/xml")
+
+            best_day, limit_value = parse_card_details_message(mensagem)
+            if best_day is not None or limit_value is not None:
+                updated_card = save_current_card_details(user_id, best_day, limit_value) or current_card
+                next_card = advance_card_progress(user_id)
+                detail_parts = []
+                if updated_card.get("dia_melhor_compra"):
+                    detail_parts.append(f"melhor dia {updated_card['dia_melhor_compra']}")
+                if updated_card.get("limite_credito") is not None:
+                    detail_parts.append(f"limite de R${float(updated_card['limite_credito']):.2f}")
+                detail_summary = ", ".join(detail_parts) if detail_parts else "essas informacoes"
+
+                if next_card:
+                    resposta = (
+                        f"Perfeito. Ja anotei {detail_summary} para o {updated_card['nome_cartao']}.\n\n"
+                        f"{card_details_prompt(str(next_card['nome_cartao']))}"
+                    )
+                else:
+                    set_pending_card_index(user_id, 0)
+                    set_onboarding_state(user_id, CARD_INVOICE_PENDING)
+                    resposta = (
+                        f"Perfeito. Ja anotei {detail_summary} para o {updated_card['nome_cartao']}.\n\n"
+                        f"{document_upload_prompt(user_id)}"
+                    )
+                return Response(content=build_twiml(resposta), media_type="application/xml")
+
+            resposta = (
+                f"Quero deixar o {current_card['nome_cartao']} bem configurado desde o inicio.\n\n"
+                f"{card_details_prompt(str(current_card['nome_cartao']))}"
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+        except HTTPException as exc:
+            return Response(content=build_twiml(exc.detail), media_type="application/xml")
+        except Exception:
+            current_card = get_current_card(user_id)
+            fallback_name = current_card["nome_cartao"] if current_card else "esse cartao"
+            resposta = (
+                f"Tive um problema para salvar os detalhes do {fallback_name} agora.\n\n"
+                f"{card_details_prompt(str(fallback_name))}"
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+    if onboarding_state == CARD_INVOICE_PENDING:
+        try:
+            current_card = get_current_card(user_id)
+            if not current_card:
+                complete_document_onboarding(user_id)
+                resposta = "Perfeito. Ja organizei essa etapa inicial e agora posso seguir com voce normalmente."
+                return Response(content=build_twiml(resposta), media_type="application/xml")
+
+            if incoming_media:
+                resposta = _register_document_upload("fatura_cartao")
+                next_card = advance_card_progress(user_id)
+                if next_card:
+                    resposta = (
+                        f"{resposta}\n\n"
+                        f"Agora pode me mandar a fatura atual do {next_card['nome_cartao']}."
+                    )
+                else:
+                    complete_document_onboarding(user_id)
+                    resposta = (
+                        f"{resposta}\n\n"
+                        "Perfeito. Com isso, terminei de organizar sua base inicial e ja posso te acompanhar melhor daqui para frente."
+                    )
+                return Response(content=build_twiml(resposta), media_type="application/xml")
+
+            if should_skip_document_onboarding(mensagem):
+                next_card = advance_card_progress(user_id)
+                if next_card:
+                    resposta = (
+                        f"Tudo bem. Vamos deixar a fatura do {current_card['nome_cartao']} para depois.\n\n"
+                        f"{card_invoice_prompt(str(next_card['nome_cartao']))}"
+                    )
+                else:
+                    complete_document_onboarding(user_id)
+                    resposta = "Tudo bem. Podemos completar as faturas depois. Por enquanto, sigo te ajudando com o restante."
+                return Response(content=build_twiml(resposta), media_type="application/xml")
+
+            resposta = card_invoice_prompt(str(current_card["nome_cartao"]))
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+        except HTTPException as exc:
+            return Response(content=build_twiml(exc.detail), media_type="application/xml")
+        except Exception:
+            current_card = get_current_card(user_id)
+            fallback_name = current_card["nome_cartao"] if current_card else "esse cartao"
+            resposta = (
+                f"Tive um problema para seguir com a fatura do {fallback_name} agora.\n\n"
+                f"{card_invoice_prompt(str(fallback_name))}"
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
 

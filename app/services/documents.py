@@ -15,8 +15,10 @@ from starlette.datastructures import FormData
 from app.config import get_settings
 from app.db import get_cursor
 from app.services.onboarding import (
+    CARD_INVOICE_PENDING,
     DOCUMENT_ONBOARDING_PENDING,
     ONBOARDING_COMPLETE,
+    get_current_card,
     get_card_names,
     set_onboarding_state,
 )
@@ -367,6 +369,14 @@ def document_invite_prompt(user_id: int | None = None) -> str:
 
 
 def document_upload_prompt(user_id: int | None = None) -> str:
+    if user_id:
+        current_card = get_current_card(user_id)
+        if current_card:
+            return (
+                f"Perfeito. Agora pode me mandar a fatura atual do {current_card['nome_cartao']}.\n\n"
+                'Pode ser imagem ou PDF. Se preferir pular esta fatura por enquanto, responda "PULAR".'
+            )
+
     if user_id and has_document_type(user_id, "extrato"):
         invoice_target = _card_invoice_message(user_id)
         if not invoice_target:
@@ -426,7 +436,7 @@ def start_document_onboarding(user_id: int) -> None:
             (user_id,),
         )
         conn.commit()
-    set_onboarding_state(user_id, DOCUMENT_ONBOARDING_PENDING)
+    set_onboarding_state(user_id, CARD_INVOICE_PENDING)
 
 
 def complete_document_onboarding(user_id: int) -> None:

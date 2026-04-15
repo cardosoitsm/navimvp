@@ -1,5 +1,6 @@
 import re
 import unicodedata
+from decimal import Decimal, InvalidOperation
 
 from app.db import get_cursor
 
@@ -7,6 +8,8 @@ ACCOUNT_SNAPSHOT_PENDING = "account_snapshot_pending"
 BUDGET_SETUP_PENDING = "budget_setup_pending"
 CARD_COUNT_PENDING = "card_count_pending"
 CARD_NAMES_PENDING = "card_names_pending"
+CARD_DETAILS_PENDING = "card_details_pending"
+CARD_INVOICE_PENDING = "card_invoice_pending"
 DOCUMENT_ONBOARDING_PENDING = "document_onboarding_pending"
 ONBOARDING_COMPLETE = "onboarding_complete"
 
@@ -149,6 +152,22 @@ def card_names_prompt(total: int) -> str:
         f"Entao vamos cadastrar esses {total} cartoes.\n\n"
         "Me diga como voce quer chamar cada um deles, de preferencia na ordem, separado por virgula.\n"
         "Por exemplo: Nubank, Itau, Cartao da Casa"
+    )
+
+
+def card_details_prompt(card_name: str) -> str:
+    return (
+        f"Agora me ajuda com mais um detalhe do {card_name}.\n\n"
+        "Qual e o melhor dia de compra e qual e o limite desse cartao?\n"
+        "Por exemplo: melhor dia 20 e limite 5000\n\n"
+        'Se preferir, pode responder "PULAR".'
+    )
+
+
+def card_invoice_prompt(card_name: str) -> str:
+    return (
+        f"Perfeito. Agora pode me mandar a fatura atual do {card_name}.\n\n"
+        'Pode ser imagem ou PDF. Se preferir pular esta fatura por enquanto, responda "PULAR".'
     )
 
 
@@ -340,6 +359,141 @@ def get_card_names(user_id: int) -> list[str]:
             )
         rows = cursor.fetchall()
     return [str(row[0]) for row in rows]
+
+
+def get_cards(user_id: int) -> list[dict[str, int | str | None]]:
+    with get_cursor() as (_, cursor):
+        if not _table_exists(cursor, "cartoes_usuario"):
+            return []
+        cursor.execute(
+            """
+            SELECT id, nome_cartao, ordem, dia_melhor_compra, limite_credito
+            FROM cartoes_usuario
+            WHERE user_id = %s
+            ORDER BY ordem ASC
+            """,
+            (user_id,),
+        )
+        rows = cursor.fetchall()
+    return [
+        {
+            "id": int(row[0]),
+            "nome_cartao": str(row[1]),
+            "ordem": int(row[2]),
+            "dia_melhor_compra": int(row[3]) if row[3] is not None else None,
+            "limite_credito": float(row[4]) if row[4] is not None else None,
+        }
+        for row in rows
+    ]
+
+
+def get_pending_card_index(user_id: int) -> int:
+    with get_cursor() as (_, cursor):
+        if not _column_exists(cursor, "configuracoes_usuario", "pending_card_index"):
+            return 0
+        cursor.execute(
+            """
+            SELECT pending_card_index
+            FROM configuracoes_usuario
+            WHERE user_id = %s
+            """,
+            (user_id,),
+        )
+        result = cursor.fetchone()
+    return int(result[0]) if result and result[0] is not None else 0
+
+
+def set_pending_card_index(user_id: int, index: int) -> None:
+    with get_cursor() as (conn, cursor):
+        if _column_exists(cursor, "configuracoes_usuario", "pending_card_index"):
+            cursor.execute(
+                """
+                UPDATE configuracoes_usuario
+                SET pending_card_index = %s,
+                    updated_at = NOW()
+                WHERE user_id = %s
+                """,
+                (max(index, 0), user_id),
+            )
+        else:
+            cursor.execute(
+                """
+                UPDATE configuracoes_usuario
+                SET updated_at = NOW()
+                WHERE user_id = %s
+                """,
+                (user_id,),
+            )
+        conn.commit()
+
+
+def get_current_card(user_id: int) -> dict[str, int | str | None] | None:
+    cards = get_cards(user_id)
+    if not cards:
+        return None
+    index = get_pending_card_index(user_id)
+    if index < 0 or index >= len(cards):
+        return None
+    return cards[index]
+
+
+def advance_card_progress(user_id: int) -> dict[str, int | str | None] | None:
+    cards = get_cards(user_id)
+    if not cards:
+        return None
+    next_index = get_pending_card_index(user_id) + 1
+    set_pending_card_index(user_id, next_index)
+    if next_index >= len(cards):
+        return None
+    return cards[next_index]
+
+
+def _parse_decimal_value(raw_amount: str) -> Decimal:
+    cleaned = raw_amount.replace("r$", "").replace(" ", "").replace(".", "").replace(",", ".").strip()
+    return Decimal(cleaned)
+
+
+def parse_card_details_message(text: str) -> tuple[int | None, float | None]:
+    normalized = _normalize_text(text)
+    day_match = re.search(r"\b([1-9]|[12][0-9]|3[01])\b", normalized)
+    day = int(day_match.group(1)) if day_match else None
+
+    amount_matches = re.findall(r"(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d{2})?|\d+(?:,\d{2})?)", normalized)
+    limit_value = None
+    if amount_matches:
+        try:
+            parsed_values = [_parse_decimal_value(match) for match in amount_matches]
+            limit_value = float(max(parsed_values))
+        except (InvalidOperation, ValueError):
+            limit_value = None
+
+    return day, limit_value
+
+
+def save_current_card_details(user_id: int, day: int | None, limit_value: float | None) -> dict[str, int | str | None] | None:
+    current_card = get_current_card(user_id)
+    if not current_card:
+        return None
+
+    with get_cursor() as (conn, cursor):
+        if _column_exists(cursor, "cartoes_usuario", "dia_melhor_compra") and _column_exists(
+            cursor, "cartoes_usuario", "limite_credito"
+        ):
+            cursor.execute(
+                """
+                UPDATE cartoes_usuario
+                SET dia_melhor_compra = %s,
+                    limite_credito = %s
+                WHERE id = %s
+                """,
+                (day, limit_value, current_card["id"]),
+            )
+        conn.commit()
+
+    updated_card = dict(current_card)
+    updated_card["dia_melhor_compra"] = day
+    updated_card["limite_credito"] = limit_value
+    return updated_card
 
 
 def parse_card_names_flexible(text: str, expected_count: int) -> list[str]:
