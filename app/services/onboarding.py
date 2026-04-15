@@ -62,7 +62,7 @@ def _normalize_text(text: str) -> str:
 
 def account_snapshot_prompt() -> str:
     return (
-        "Para eu te orientar melhor desde o comeco, queria entender como esta sua conta hoje.\n\n"
+        "Para eu te orientar melhor desde o comeco, queria entender como esta sua vida financeira hoje.\n\n"
         "Voce pode me dizer seu saldo atual ou me enviar o extrato de hoje.\n\n"
         'Se preferir, pode responder "PULAR" e seguimos mesmo assim.'
     )
