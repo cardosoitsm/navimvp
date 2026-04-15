@@ -318,14 +318,41 @@ def _extract_pdf_text(media_bytes: bytes) -> str:
     return "\n\n".join(part for part in pages if part).strip()
 
 
-def document_invite_prompt() -> str:
+def has_document_type(user_id: int, tipo_documento: str) -> bool:
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            """
+            SELECT 1
+            FROM documentos_financeiros
+            WHERE user_id = %s
+              AND tipo_documento = %s
+            LIMIT 1
+            """,
+            (user_id, tipo_documento),
+        )
+        return cursor.fetchone() is not None
+
+
+def document_invite_prompt(user_id: int | None = None) -> str:
+    if user_id and has_document_type(user_id, "extrato"):
+        return (
+            "Ja recebi seu extrato, entao o proximo passo mais util e olhar sua fatura do cartao.\n\n"
+            'Se quiser enviar agora, me responda "SIM". Se preferir deixar para depois, pode dizer "PULAR".'
+        )
+
     return (
         "Se fizer sentido para voce, eu tambem posso olhar seu extrato ou sua fatura para entender melhor sua situacao financeira.\n\n"
         'Se quiser enviar agora, me responda "SIM". Se preferir deixar para depois, pode dizer "PULAR".'
     )
 
 
-def document_upload_prompt() -> str:
+def document_upload_prompt(user_id: int | None = None) -> str:
+    if user_id and has_document_type(user_id, "extrato"):
+        return (
+            "Perfeito. Como eu ja tenho seu extrato, agora pode me mandar a fatura do cartao.\n\n"
+            'Pode ser imagem ou PDF. Se mudar de ideia, e so responder "PULAR".'
+        )
+
     return (
         "Perfeito. Pode me mandar agora um extrato da conta ou uma fatura do cartao.\n\n"
         'Pode ser imagem ou PDF. Se mudar de ideia, e so responder "PULAR".'
@@ -449,6 +476,7 @@ def register_received_document(
     media_url: str,
     media_content_type: str,
     message_text: str,
+    forced_type: str | None = None,
 ) -> tuple[int, str, str]:
     if media_content_type not in SUPPORTED_MEDIA_TYPES:
         raise HTTPException(
@@ -459,7 +487,7 @@ def register_received_document(
             ),
         )
 
-    hinted_type = infer_document_type(message_text, media_content_type)
+    hinted_type = forced_type or infer_document_type(message_text, media_content_type)
     document_id = _store_document(user_id, hinted_type, media_content_type, media_url)
     return document_id, hinted_type, build_document_receipt_message(hinted_type)
 

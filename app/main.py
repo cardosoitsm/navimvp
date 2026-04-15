@@ -111,13 +111,14 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         )
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
-    def _register_document_upload() -> str:
+    def _register_document_upload(forced_type: str | None = None) -> str:
         media_url, media_content_type = incoming_media  # type: ignore[misc]
         document_id, hinted_type, resposta = register_received_document(
             user_id,
             media_url,
             media_content_type,
             mensagem,
+            forced_type,
         )
         background_tasks.add_task(
             process_stored_document,
@@ -136,7 +137,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
 
     if onboarding_state == ACCOUNT_SNAPSHOT_PENDING:
         if incoming_media:
-            resposta = _register_document_upload()
+            resposta = _register_document_upload("extrato")
             set_onboarding_state(user_id, BUDGET_SETUP_PENDING)
             resposta = (
                 f"{resposta}\n\n"
@@ -190,12 +191,12 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                     mark_budget_onboarding_completed(user_id)
                     resposta = (
                         "Sem problema. Vamos deixar seus limites para depois.\n\n"
-                        f"{document_upload_prompt()}"
+                        f"{document_upload_prompt(user_id)}"
                     )
                     return Response(content=build_twiml(resposta), media_type="application/xml")
                 resposta = (
                     "Claro, podemos comecar por esse documento.\n\n"
-                    f"{document_upload_prompt()}\n\n"
+                    f"{document_upload_prompt(user_id)}\n\n"
                     'Se em algum momento quiser voltar aos limites, me mande algo como "Farmacia 290, mercado 1200".'
                 )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -218,7 +219,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             start_document_onboarding(user_id)
             resposta = (
                 "Consigo sim. Vamos fazer isso agora.\n\n"
-                f"{document_upload_prompt()}\n\n"
+                f"{document_upload_prompt(user_id)}\n\n"
                 'Se preferir, depois a gente volta para seus limites. E se quiser pular essa etapa por enquanto, responda "PULAR".'
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -227,7 +228,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             save_budgets(user_id, budgets)
             resposta = (
                 f"{build_budget_setup_confirmation(budgets)}\n\n"
-                f"{document_invite_prompt()}"
+                f"{document_invite_prompt(user_id)}"
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
         if is_budget_edit_request(mensagem):
@@ -250,7 +251,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             resposta = (
                 "Perfeito. Atualizei seus limites.\n\n"
                 f"{build_budget_setup_confirmation(budgets)}\n\n"
-                f"{document_invite_prompt()}"
+                f"{document_invite_prompt(user_id)}"
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
         if is_budget_edit_request(mensagem):
@@ -269,7 +270,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                     complete_document_onboarding(user_id)
                     resposta = "Tudo bem. Podemos olhar esses documentos depois. Por enquanto, sigo te ajudando com o restante."
                     return Response(content=build_twiml(resposta), media_type="application/xml")
-                resposta = document_upload_prompt()
+                resposta = document_upload_prompt(user_id)
                 return Response(content=build_twiml(resposta), media_type="application/xml")
             except HTTPException as exc:
                 return Response(content=build_twiml(exc.detail), media_type="application/xml")
@@ -282,13 +283,13 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
 
         if should_start_document_onboarding(mensagem):
             start_document_onboarding(user_id)
-            resposta = document_upload_prompt()
+            resposta = document_upload_prompt(user_id)
             return Response(content=build_twiml(resposta), media_type="application/xml")
         if should_skip_document_onboarding(mensagem):
             complete_document_onboarding(user_id)
             resposta = "Tudo bem. Podemos olhar seus documentos depois. Por enquanto, seguimos com o restante."
             return Response(content=build_twiml(resposta), media_type="application/xml")
-        resposta = document_invite_prompt()
+        resposta = document_invite_prompt(user_id)
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
     try:
@@ -306,7 +307,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             start_document_onboarding(user_id)
             resposta = (
                 "Claro. Posso te ajudar com esse documento.\n\n"
-                f"{document_upload_prompt()}"
+                f"{document_upload_prompt(user_id)}"
             )
         elif intent == "recent_transactions":
             resposta = listar_ultimas_transacoes(user_id)
