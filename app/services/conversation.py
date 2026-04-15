@@ -35,6 +35,18 @@ DOCUMENT_PATTERNS = (
     "boleto do cartao",
 )
 
+CARD_SETUP_PATTERNS = (
+    "cadastrar cartao",
+    "cadastrar cartoes",
+    "cadastrar meus cartoes",
+    "acompanhar cartao",
+    "acompanhar cartoes",
+    "meus cartoes",
+    "meus cartões",
+    "quero cadastrar meu cartao",
+    "quero cadastrar meus cartoes",
+)
+
 
 def normalize_text(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", text.lower().strip())
@@ -52,6 +64,8 @@ def detect_intent(text: str) -> str:
         return "recent_transactions"
     if any(pattern in normalized for pattern in QUERY_BUDGET_PATTERNS):
         return "budget_status"
+    if any(pattern in normalized for pattern in CARD_SETUP_PATTERNS):
+        return "card_setup_request"
     if any(pattern in normalized for pattern in DOCUMENT_PATTERNS):
         return "document_request"
     if "quanto gastei" in normalized:

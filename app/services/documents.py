@@ -353,7 +353,7 @@ def document_invite_prompt(user_id: int | None = None) -> str:
         if not invoice_target:
             return (
                 "Ja recebi seu extrato e, com isso, ja tenho uma boa base inicial para te acompanhar.\n\n"
-                "Se depois fizer sentido incluir alguma fatura de cartao, e so me avisar."
+                "Se quiser incluir cartoes nessa organizacao, me diga quantos cartoes voce quer cadastrar."
             )
         return (
             f"Ja recebi seu extrato, entao o proximo passo mais util e olhar {invoice_target}.\n\n"

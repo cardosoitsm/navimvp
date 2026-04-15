@@ -187,6 +187,14 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
+        if intent == "card_setup_request":
+            set_onboarding_state(user_id, CARD_COUNT_PENDING)
+            resposta = (
+                "Claro. Vamos organizar seus cartoes por aqui tambem.\n\n"
+                f"{card_count_prompt()}"
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
         resposta = account_snapshot_prompt()
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
@@ -236,6 +244,13 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 "Consigo sim. Vamos fazer isso agora.\n\n"
                 f"{document_upload_prompt(user_id)}\n\n"
                 'Se preferir, depois a gente volta para seus limites. E se quiser pular essa etapa por enquanto, responda "PULAR".'
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+        if intent == "card_setup_request":
+            set_onboarding_state(user_id, CARD_COUNT_PENDING)
+            resposta = (
+                "Claro. Vamos organizar seus cartoes antes de seguir.\n\n"
+                f"{card_count_prompt()}"
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
         budgets = parse_budget_message(mensagem)
@@ -385,6 +400,13 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 "Depois que voce me mandar os novos valores, eu atualizo tudo por aqui."
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
+        if intent == "card_setup_request":
+            set_onboarding_state(user_id, CARD_COUNT_PENDING)
+            resposta = (
+                "Perfeito. Vamos trazer seus cartoes para dentro dessa organizacao.\n\n"
+                f"{card_count_prompt()}"
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
         if incoming_media:
             try:
                 resposta = _register_document_upload()
@@ -446,6 +468,12 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             resposta = (
                 "Claro. Posso te ajudar com esse documento.\n\n"
                 f"{document_upload_prompt(user_id)}"
+            )
+        elif intent == "card_setup_request":
+            set_onboarding_state(user_id, CARD_COUNT_PENDING)
+            resposta = (
+                "Claro. Vamos cadastrar seus cartoes e deixar isso redondo.\n\n"
+                f"{card_count_prompt()}"
             )
         elif intent == "recent_transactions":
             resposta = listar_ultimas_transacoes(user_id)
