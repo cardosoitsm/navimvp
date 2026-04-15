@@ -1,4 +1,5 @@
 from app.db import get_cursor
+from app.services.formatting import format_brl
 
 
 def resumo_mes(user_id: int) -> str:
@@ -16,17 +17,17 @@ def resumo_mes(user_id: int) -> str:
         dados = cursor.fetchall()
 
     if not dados:
-        return "Voce ainda nao registrou gastos."
+        return "Você ainda não registrou gastos."
 
     total = 0.0
     linhas = ["Seus gastos:", ""]
     for categoria, valor in dados:
         valor_float = float(valor)
-        linhas.append(f"- {categoria}: R${valor_float:.2f}")
+        linhas.append(f"- {categoria}: {format_brl(valor_float)}")
         total += valor_float
 
     linhas.append("")
-    linhas.append(f"Total: R${total:.2f}")
+    linhas.append(f"Total: {format_brl(total)}")
     return "\n".join(linhas)
 
 
@@ -42,7 +43,7 @@ def resumo_categoria(user_id: int, categoria: str) -> str:
         )
         total = float(cursor.fetchone()[0])
 
-    return f"Voce gastou R${total:.2f} com {categoria}"
+    return f"Você gastou {format_brl(total)} com {categoria}."
 
 
 def gerar_insight(user_id: int, categoria: str) -> str:
@@ -72,7 +73,7 @@ def gerar_insight(user_id: int, categoria: str) -> str:
 
     percentual = (total_categoria / total_geral) * 100
     return (
-        f"Voce ja gastou R${total_categoria:.2f} em {categoria}\n"
+        f"Você já gastou {format_brl(total_categoria)} em {categoria}.\n"
         f"Isso representa {percentual:.0f}% dos seus gastos."
     )
 
@@ -92,9 +93,9 @@ def listar_ultimas_transacoes(user_id: int, limite: int = 5) -> str:
         dados = cursor.fetchall()
 
     if not dados:
-        return "Voce ainda nao registrou transacoes."
+        return "Você ainda não registrou transações."
 
-    linhas = ["Seus ultimos lancamentos:", ""]
+    linhas = ["Seus últimos lançamentos:", ""]
     for categoria, valor, tipo, _ in dados:
-        linhas.append(f"- {tipo} em {categoria}: R${float(valor):.2f}")
+        linhas.append(f"- {tipo} em {categoria}: {format_brl(float(valor))}")
     return "\n".join(linhas)

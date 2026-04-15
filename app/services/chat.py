@@ -9,6 +9,7 @@ from app.db import get_cursor
 from app.schemas import ParsedTransaction, PendingTransaction
 from app.services.budgets import build_budget_feedback
 from app.services.conversation import save_pending_confirmation, should_request_confirmation
+from app.services.formatting import format_brl
 from app.services.summary import gerar_insight
 
 
@@ -70,7 +71,7 @@ def _extract_transactions_from_ai(text: str) -> list[ParsedTransaction]:
     if not settings.openai_api_key:
         raise HTTPException(
             status_code=500,
-            detail="OPENAI_API_KEY nao configurada",
+            detail="OPENAI_API_KEY não configurada",
         )
 
     client = OpenAI(api_key=settings.openai_api_key)
@@ -112,9 +113,9 @@ def _normalize_transaction(text: str, transaction: ParsedTransaction) -> Pending
 
 def _build_confirmation_message(transaction: PendingTransaction) -> str:
     return (
-        "Entendi esta transacao:\n\n"
-        f"- {transaction.tipo} em {transaction.categoria}: R${transaction.valor:.2f}\n\n"
-        "Responda SIM para confirmar ou NAO para cancelar."
+        "Acho que entendi assim:\n\n"
+        f"- {transaction.tipo} em {transaction.categoria}: {format_brl(transaction.valor)}\n\n"
+        'Se estiver certo, me responda "SIM". Se quiser corrigir, pode dizer "NÃO".'
     )
 
 
@@ -125,10 +126,10 @@ def process_user_message(text: str, user_id: int) -> dict[str, str]:
         raise HTTPException(
             status_code=422,
             detail=(
-                "Nao consegui entender isso como uma transacao.\n\n"
-                "Voce pode tentar de novo de um destes jeitos:\n"
+                "Não consegui entender isso como uma transação.\n\n"
+                "Se quiser, tente de um destes jeitos:\n"
                 '- "Gastei R$50 em Uber"\n'
-                '- "Quanto gastei no mes?"\n'
+                '- "Quanto gastei no mês?"\n'
                 '- enviar um extrato ou uma fatura em imagem/PDF'
             ),
         )
@@ -137,17 +138,17 @@ def process_user_message(text: str, user_id: int) -> dict[str, str]:
     except Exception as exc:
         raise HTTPException(
             status_code=502,
-            detail="Nao foi possivel interpretar a mensagem agora.",
+            detail="Não foi possível interpretar a mensagem agora.",
         ) from exc
 
     if not transactions:
         raise HTTPException(
             status_code=422,
             detail=(
-                "Nao encontrei uma transacao valida na sua mensagem.\n\n"
-                "Se voce quiser, eu posso te ajudar de outras formas tambem:\n"
+                "Não encontrei uma transação válida nessa mensagem.\n\n"
+                "Mas eu ainda posso te ajudar de outras formas:\n"
                 '- registrar um gasto, como "Gastei R$50 em Uber"\n'
-                '- resumir seus gastos do mes\n'
+                '- resumir seus gastos do mês\n'
                 '- receber um extrato ou uma fatura em imagem/PDF'
             ),
         )
@@ -172,14 +173,14 @@ def process_user_message(text: str, user_id: int) -> dict[str, str]:
                 (transaction.tipo, transaction.categoria, transaction.valor, user_id),
             )
 
-            respostas.append(f"- {transaction.categoria}: R${transaction.valor:.2f}")
+            respostas.append(f"- {transaction.categoria}: {format_brl(transaction.valor)}")
             ultima_categoria = transaction.categoria
 
         conn.commit()
 
     insight = gerar_insight(user_id, ultima_categoria) if ultima_categoria else ""
     budget_feedback = build_budget_feedback(user_id, ultima_categoria) if ultima_categoria else ""
-    linhas = ["Transacoes registradas:", ""] + respostas
+    linhas = ["Anotei estas transações:", ""] + respostas
     if insight:
         linhas.extend(["", insight])
     if budget_feedback:

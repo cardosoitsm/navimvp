@@ -3,6 +3,7 @@ import unicodedata
 from decimal import Decimal, InvalidOperation
 
 from app.db import get_cursor
+from app.services.formatting import format_brl
 from app.services.onboarding import CARD_COUNT_PENDING, set_onboarding_state
 
 SKIP_BUDGET_WORDS = {"pular", "depois", "agora nao", "agora nao.", "nao"}
@@ -22,9 +23,9 @@ CATEGORY_ALIASES = {
 }
 
 ALERT_LEVELS = (
-    (100, "Voce ultrapassou o limite planejado para {categoria} neste mes."),
-    (80, "Atencao: voce ja usou {percentual:.0f}% do seu limite de {categoria}."),
-    (50, "Voce ja usou {percentual:.0f}% do seu limite de {categoria} neste mes."),
+    (100, "Você ultrapassou o limite planejado para {categoria} neste mês."),
+    (80, "Atenção: você já usou {percentual:.0f}% do seu limite de {categoria}."),
+    (50, "Você já usou {percentual:.0f}% do seu limite de {categoria} neste mês."),
 )
 
 
@@ -75,7 +76,7 @@ def mark_budget_onboarding_completed(user_id: int, next_state: str | None = CARD
 
 def onboarding_budget_prompt() -> str:
     return (
-        "Antes de comecarmos de verdade, quero entender como voce gostaria de se organizar neste mes.\n\n"
+        "Antes de começarmos de verdade, quero entender como você gostaria de se organizar neste mês.\n\n"
         "Se quiser, me diga seus limites por categoria. Por exemplo:\n"
         "Farmacia 290, mercado 1200, lazer 1000\n\n"
         'Se preferir, pode responder "PULAR" e a gente configura isso depois.'
@@ -128,8 +129,8 @@ def is_budget_edit_request(text: str) -> bool:
 
 def budget_edit_prompt() -> str:
     return (
-        "Claro. Voce pode ajustar seus limites quando quiser.\n\n"
-        "Se preferir, me mande ja no formato novo. Por exemplo:\n"
+        "Claro. Você pode ajustar seus limites quando quiser.\n\n"
+        "Se preferir, me mande já no formato novo. Por exemplo:\n"
         "Mercado 2000, farmacia 1200, lazer 1000"
     )
 
@@ -165,14 +166,14 @@ def save_budgets(
 
 
 def build_budget_setup_confirmation(budgets: dict[str, Decimal]) -> str:
-    linhas = ["Perfeito. Ja deixei seus limites mensais anotados aqui comigo:", ""]
+    linhas = ["Perfeito. Já deixei seus limites mensais anotados aqui comigo:", ""]
     for categoria, valor in budgets.items():
-        linhas.append(f"- {categoria}: R${float(valor):.2f}")
+        linhas.append(f"- {categoria}: {format_brl(float(valor))}")
     linhas.extend(
         [
             "",
-            "Vou acompanhar isso com voce e te avisar quando algum limite estiver ficando apertado.",
-            "Quando quiser, ja pode me mandar sua primeira transacao.",
+            "Vou acompanhar isso com você e te avisar quando algum limite estiver ficando apertado.",
+            "Quando quiser, já pode me mandar sua primeira transação.",
         ]
     )
     return "\n".join(linhas)
@@ -218,16 +219,16 @@ def _current_budget_progress(user_id: int, categoria: str) -> tuple[float, float
 def build_budget_status_message(user_id: int, categoria: str) -> str:
     progress = _current_budget_progress(user_id, categoria)
     if not progress:
-        return f"Voce ainda nao configurou um limite para {categoria}."
+        return f"Você ainda não configurou um limite para {categoria}."
 
     gasto, limite = progress
     restante = limite - gasto
     percentual = (gasto / limite) * 100 if limite > 0 else 0
 
     return (
-        f"Seu limite de {categoria} neste mes e R${limite:.2f}.\n"
-        f"Voce ja gastou R${gasto:.2f} ({percentual:.0f}% do limite).\n"
-        f"Ainda restam R${max(restante, 0):.2f}."
+        f"Seu limite de {categoria} neste mês é {format_brl(limite)}.\n"
+        f"Você já gastou {format_brl(gasto)} ({percentual:.0f}% do limite).\n"
+        f"Ainda restam {format_brl(max(restante, 0))}."
     )
 
 
@@ -279,9 +280,9 @@ def build_budget_feedback(user_id: int, categoria: str) -> str:
     percentual = (gasto / limite) * 100 if limite > 0 else 0
     restante = max(limite - gasto, 0)
     linhas = [
-        f"Seu limite de {categoria} neste mes e R${limite:.2f}.",
-        f"Voce ja consumiu R${gasto:.2f} ({percentual:.0f}% do limite).",
-        f"Ainda restam R${restante:.2f}.",
+        f"Seu limite de {categoria} neste mês é {format_brl(limite)}.",
+        f"Você já consumiu {format_brl(gasto)} ({percentual:.0f}% do limite).",
+        f"Ainda restam {format_brl(restante)}.",
     ]
 
     alerta = _register_alert_if_needed(user_id, categoria, percentual)
