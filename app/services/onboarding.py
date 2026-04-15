@@ -546,20 +546,34 @@ def _parse_decimal_value(raw_amount: str) -> Decimal:
 
 def parse_card_details_message(text: str) -> tuple[int | None, float | None]:
     normalized = _normalize_text(text)
-    day_match = re.search(r"\b([1-9]|[12][0-9]|3[01])\b", normalized)
-    day = int(day_match.group(1)) if day_match else None
-
-    amount_matches = re.findall(
-        r"(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d{2})?[km]?\.?|\d+(?:,\d{2})?[km]?\.?)",
+    day_match = re.search(
+        r"(?:melhor\s+dia(?:\s+para\s+compras?)?|dia)\D{0,10}\b([1-9]|[12][0-9]|3[01])\b",
         normalized,
     )
+    day = int(day_match.group(1)) if day_match else None
+
     limit_value = None
-    if amount_matches:
+    limit_match = re.search(
+        r"limite(?:\s+do\s+cartao)?\D{0,20}(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{2})?[km]?\.?)",
+        normalized,
+    )
+    if limit_match:
         try:
-            parsed_values = [_parse_decimal_value(match) for match in amount_matches]
-            limit_value = float(max(parsed_values))
+            limit_value = float(_parse_decimal_value(limit_match.group(1)))
         except (InvalidOperation, ValueError):
             limit_value = None
+    else:
+        amount_matches = re.findall(
+            r"(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{2})?[km]?\.?)",
+            normalized,
+        )
+        if amount_matches:
+            try:
+                parsed_values = [_parse_decimal_value(match) for match in amount_matches]
+                parsed_values = [value for value in parsed_values if value > 31]
+                limit_value = float(max(parsed_values)) if parsed_values else None
+            except (InvalidOperation, ValueError):
+                limit_value = None
 
     return day, limit_value
 
@@ -860,6 +874,130 @@ def parse_card_names_assisted(text: str, expected_count: int) -> list[str]:
         return normalized_names
     except Exception:
         return []
+
+
+def parse_card_names_llm_first(text: str, expected_count: int) -> list[str]:
+    def _looks_like_card_name(candidate: str) -> bool:
+        normalized_candidate = _normalize_text(candidate)
+        forbidden_markers = (
+            "quero chamar",
+            "vou chamar",
+            "cartoes",
+            "cartao",
+            "nome",
+            "claro",
+            "perfeito",
+            "esses cartoes",
+            "estes cartoes",
+            "outro e o",
+            "outro e a",
+            "o outro e o",
+            "o outro e a",
+        )
+        return not any(marker in normalized_candidate for marker in forbidden_markers)
+
+    cleaned_text = text.strip()
+    if not cleaned_text or expected_count <= 0:
+        return []
+
+    if ":" in cleaned_text:
+        left_side, right_side = cleaned_text.split(":", 1)
+        normalized_left = _normalize_text(left_side)
+        if any(keyword in normalized_left for keyword in ("cart", "nome", "chamar")):
+            cleaned_text = right_side.strip(" .:-")
+    else:
+        cleaned_text = re.sub(
+            r"^(?:claro|perfeito|beleza|ok|tudo bem)\W*",
+            "",
+            cleaned_text,
+            flags=re.IGNORECASE,
+        ).strip()
+        cleaned_text = re.sub(
+            r"\s+e\s+o\s+outro\s+[eé]\s+o\s+",
+            ", ",
+            cleaned_text,
+            flags=re.IGNORECASE,
+        )
+        cleaned_text = re.sub(
+            r"\s+e\s+o\s+outro\s+[eé]\s+a\s+",
+            ", ",
+            cleaned_text,
+            flags=re.IGNORECASE,
+        )
+        cleaned_text = re.sub(
+            r"^(?:quero\s+chamar\s+(?:estes?|esses|meus)?\s*cart[oő]es?\s+de|"
+            r"vou\s+chamar\s+(?:estes?|esses|meus)?\s*cart[oő]es?\s+de|"
+            r"os\s+cart[oő]es?\s+s[aă]o|"
+            r"meus?\s+cart[oő]es?\s+s[aă]o|"
+            r"cart[oő]es?\s+s[aă]o|"
+            r"os\s+nomes?\s+s[aă]o|"
+            r"nomes?\s+s[aă]o)\s*",
+            "",
+            cleaned_text,
+            flags=re.IGNORECASE,
+        ).strip(" .:-")
+
+    normalized_original = _normalize_text(text)
+    should_force_llm = any(
+        marker in normalized_original
+        for marker in (
+            "quero chamar",
+            "vou chamar",
+            "o outro e",
+            "outro e o",
+            "outro e a",
+        )
+    )
+
+    settings = get_settings()
+    if settings.openai_api_key:
+        try:
+            client = OpenAI(api_key=settings.openai_api_key)
+            response = client.chat.completions.create(
+                model="gpt-4.1-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Extraia apenas os nomes dos cartoes citados pelo usuario e retorne somente JSON valido no formato "
+                            '{"card_names":["nome 1","nome 2"]}. '
+                            "Ignore saudacoes, confirmacoes, expressoes como 'o outro e' e o resto da frase."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Frase do usuario: {text}\n"
+                            f"Trecho ja limpo: {cleaned_text}\n"
+                            f"Quantidade esperada de cartoes: {expected_count}\n"
+                            "Responda somente com a lista dos nomes, sem repetir o resto da frase."
+                        ),
+                    },
+                ],
+            )
+            payload = (response.choices[0].message.content or "{}").strip()
+            if "```" in payload:
+                parts = payload.split("```")
+                if len(parts) > 1:
+                    payload = parts[1].replace("json", "").strip()
+
+            data = json.loads(payload)
+            if isinstance(data, dict):
+                raw_names = data.get("card_names")
+                if isinstance(raw_names, list):
+                    normalized_names = [str(name).strip(" .:-") for name in raw_names if str(name).strip(" .:-")]
+                    if len(normalized_names) == expected_count and all(
+                        _looks_like_card_name(name) for name in normalized_names
+                    ):
+                        return normalized_names
+        except Exception:
+            pass
+
+    names = parse_card_names_assisted(cleaned_text, expected_count) if not should_force_llm else []
+    if names and all(_looks_like_card_name(name) for name in names):
+        return names
+
+    return []
 
 
 def build_card_setup_confirmation(names: list[str]) -> str:
