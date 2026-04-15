@@ -40,6 +40,7 @@ from app.services.documents import (
     should_start_document_onboarding,
     start_document_onboarding,
 )
+from app.services.financial_health import build_financial_health_message
 from app.services.onboarding import (
     ACCOUNT_SNAPSHOT_PENDING,
     BUDGET_SETUP_PENDING,
@@ -685,6 +686,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             )
         elif intent == "invoice_status":
             resposta = build_invoice_status_message(user_id, mensagem)
+        elif intent == "financial_health":
+            resposta = build_financial_health_message(user_id)
         elif intent == "card_setup_request":
             set_onboarding_state(user_id, CARD_COUNT_PENDING)
             resposta = (

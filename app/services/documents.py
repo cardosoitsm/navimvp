@@ -15,6 +15,7 @@ from starlette.datastructures import FormData
 
 from app.config import get_settings
 from app.db import get_cursor
+from app.services.formatting import format_brl, format_ptbr_date
 from app.services.onboarding import (
     CARD_INVOICE_PENDING,
     DOCUMENT_ONBOARDING_PENDING,
@@ -33,28 +34,6 @@ SUPPORTED_MEDIA_TYPES = {"image/jpeg", "image/png", "image/webp", "application/p
 def _normalize_text(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", text.lower().strip())
     return normalized.encode("ascii", "ignore").decode("ascii")
-
-
-def _format_ptbr_date(value: Any) -> str | None:
-    if not value:
-        return None
-
-    if hasattr(value, "strftime"):
-        try:
-            return value.strftime("%d-%m-%Y")
-        except Exception:
-            pass
-
-    normalized = _normalize_date(value)
-    if not normalized:
-        return None
-
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"):
-        try:
-            return datetime.strptime(normalized, fmt).strftime("%d-%m-%Y")
-        except ValueError:
-            continue
-    return str(value)
 
 
 def _save_conversation_focus(user_id: int, topic: str | None, card_id: int | None = None) -> None:
@@ -677,12 +656,12 @@ def build_invoice_status_message(user_id: int, message_text: str) -> str:
     vencimento = row[1]
     pagamento_minimo = float(row[2]) if row[2] is not None else None
 
-    resposta = [f"A última fatura que tenho salva do {card_name} está em R${valor_total:.2f}."]
+    resposta = [f"A última fatura que tenho salva do {card_name} está em {format_brl(valor_total)}."]
     vencimento_formatado = _format_ptbr_date(vencimento)
     if vencimento_formatado:
         resposta.append(f"O vencimento identificado é {vencimento_formatado}.")
     if pagamento_minimo is not None:
-        resposta.append(f"O pagamento mínimo dela ficou em R${pagamento_minimo:.2f}.")
+        resposta.append(f"O pagamento mínimo dela ficou em {format_brl(pagamento_minimo)}.")
     return "\n\n".join(resposta)
 
 

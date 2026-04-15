@@ -38,6 +38,22 @@ QUERY_INVOICE_PATTERNS = (
     "fatura do nubank",
 )
 
+QUERY_FINANCIAL_HEALTH_PATTERNS = (
+    "como esta minha saude financeira",
+    "como esta minha vida financeira",
+    "como esta minha situacao financeira",
+    "como está minha saúde financeira",
+    "como está minha vida financeira",
+    "como está minha situação financeira",
+    "minha saude financeira",
+    "minha saúde financeira",
+    "minha vida financeira",
+    "minha situacao financeira",
+    "minha situação financeira",
+    "quao comprometida",
+    "quão comprometida",
+)
+
 DOCUMENT_PATTERNS = (
     "extrato",
     "fatura",
@@ -78,6 +94,8 @@ def detect_intent(text: str) -> str:
         return "budget_status"
     if any(pattern in normalized for pattern in QUERY_INVOICE_PATTERNS):
         return "invoice_status"
+    if any(pattern in normalized for pattern in QUERY_FINANCIAL_HEALTH_PATTERNS):
+        return "financial_health"
     if any(pattern in normalized for pattern in CARD_SETUP_PATTERNS):
         return "card_setup_request"
     if any(pattern in normalized for pattern in DOCUMENT_PATTERNS):
