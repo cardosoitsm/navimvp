@@ -42,6 +42,7 @@ from app.services.onboarding import (
     ACCOUNT_SNAPSHOT_PENDING,
     BUDGET_SETUP_PENDING,
     CARD_COUNT_PENDING,
+    COST_REVIEW_PENDING,
     CARD_DETAILS_PENDING,
     CARD_INVOICE_PENDING,
     CARD_NAMES_PENDING,
@@ -54,16 +55,23 @@ from app.services.onboarding import (
     card_details_prompt,
     card_invoice_prompt,
     card_names_prompt,
+    cost_review_prompt,
+    has_cost_review_candidates,
     get_current_card,
     get_card_names,
     get_onboarding_state,
     get_pending_card_total,
+    infer_cost_candidates,
+    is_confirmation_no,
+    is_confirmation_yes,
+    is_cost_review_completed,
     parse_card_count,
     parse_card_names_assisted,
     parse_card_details_message,
     parse_balance_message,
     save_current_card_details,
     save_card_count,
+    save_cost_candidates,
     save_card_names,
     save_current_balance,
     set_pending_card_index,
@@ -264,26 +272,79 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             return Response(content=build_twiml(resposta), media_type="application/xml")
         budgets = parse_budget_message(mensagem)
         if budgets:
-            save_budgets(user_id, budgets, CARD_COUNT_PENDING)
-            resposta = (
-                f"{build_budget_setup_confirmation(budgets)}\n\n"
-                f"{card_count_prompt()}"
-            )
+            next_state = COST_REVIEW_PENDING if has_cost_review_candidates(user_id) and not is_cost_review_completed(user_id) else CARD_COUNT_PENDING
+            save_budgets(user_id, budgets, next_state)
+            if next_state == COST_REVIEW_PENDING:
+                fixed_costs, variable_costs = infer_cost_candidates(user_id)
+                resposta = (
+                    f"{build_budget_setup_confirmation(budgets)}\n\n"
+                    f"{cost_review_prompt(fixed_costs, variable_costs)}"
+                )
+            else:
+                resposta = (
+                    f"{build_budget_setup_confirmation(budgets)}\n\n"
+                    f"{card_count_prompt()}"
+                )
             return Response(content=build_twiml(resposta), media_type="application/xml")
         if is_budget_edit_request(mensagem):
             resposta = budget_edit_prompt()
             return Response(content=build_twiml(resposta), media_type="application/xml")
         if should_skip_budget_onboarding(mensagem):
-            mark_budget_onboarding_completed(user_id, CARD_COUNT_PENDING)
-            resposta = (
-                "Tudo bem. A gente pode configurar seus limites depois.\n\n"
-                f"{card_count_prompt()}"
-            )
+            next_state = COST_REVIEW_PENDING if has_cost_review_candidates(user_id) and not is_cost_review_completed(user_id) else CARD_COUNT_PENDING
+            mark_budget_onboarding_completed(user_id, next_state)
+            if next_state == COST_REVIEW_PENDING:
+                fixed_costs, variable_costs = infer_cost_candidates(user_id)
+                resposta = (
+                    "Tudo bem. A gente pode configurar seus limites depois.\n\n"
+                    f"{cost_review_prompt(fixed_costs, variable_costs)}"
+                )
+            else:
+                resposta = (
+                    "Tudo bem. A gente pode configurar seus limites depois.\n\n"
+                    f"{card_count_prompt()}"
+                )
             return Response(content=build_twiml(resposta), media_type="application/xml")
         resposta = (
             "Ainda nao consegui anotar seus limites mensais.\n\n"
             f"{onboarding_budget_prompt()}"
         )
+        return Response(content=build_twiml(resposta), media_type="application/xml")
+
+    if onboarding_state == COST_REVIEW_PENDING:
+        fixed_costs, variable_costs = infer_cost_candidates(user_id)
+        if not fixed_costs and not variable_costs:
+            set_onboarding_state(user_id, CARD_COUNT_PENDING)
+            resposta = card_count_prompt()
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        if should_skip_budget_onboarding(mensagem):
+            save_cost_candidates(user_id, confirmed=False)
+            set_onboarding_state(user_id, CARD_COUNT_PENDING)
+            resposta = (
+                "Tudo bem. A gente pode revisar esses custos com calma mais para frente.\n\n"
+                f"{card_count_prompt()}"
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        if is_confirmation_yes(mensagem):
+            save_cost_candidates(user_id, confirmed=True)
+            set_onboarding_state(user_id, CARD_COUNT_PENDING)
+            resposta = (
+                "Perfeito. Vou considerar essa leitura inicial dos seus custos para te acompanhar melhor.\n\n"
+                f"{card_count_prompt()}"
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        if is_confirmation_no(mensagem):
+            save_cost_candidates(user_id, confirmed=False)
+            set_onboarding_state(user_id, CARD_COUNT_PENDING)
+            resposta = (
+                "Sem problema. A gente ajusta essa classificacao com mais calma depois.\n\n"
+                f"{card_count_prompt()}"
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        resposta = cost_review_prompt(fixed_costs, variable_costs)
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
     if onboarding_state == CARD_COUNT_PENDING:

@@ -114,6 +114,19 @@ SCHEMA_STATEMENTS = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS custos_mensais (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+        descricao VARCHAR(255) NOT NULL,
+        categoria VARCHAR(100) NULL,
+        valor_medio NUMERIC(12, 2) NOT NULL,
+        tipo_custo VARCHAR(20) NOT NULL CHECK (tipo_custo IN ('fixo', 'variavel')),
+        confirmado BOOLEAN NOT NULL DEFAULT FALSE,
+        origem VARCHAR(30) NOT NULL DEFAULT 'extrato',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    """
     ALTER TABLE configuracoes_usuario
     ADD COLUMN IF NOT EXISTS onboarding_state VARCHAR(50) NOT NULL DEFAULT 'account_snapshot_pending'
     """,
@@ -124,6 +137,10 @@ SCHEMA_STATEMENTS = (
     """
     ALTER TABLE configuracoes_usuario
     ADD COLUMN IF NOT EXISTS pending_card_index INTEGER NOT NULL DEFAULT 0
+    """,
+    """
+    ALTER TABLE configuracoes_usuario
+    ADD COLUMN IF NOT EXISTS custos_onboarding_concluido BOOLEAN NOT NULL DEFAULT FALSE
     """,
     """
     ALTER TABLE faturas_cartao

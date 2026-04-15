@@ -10,6 +10,7 @@ from app.db import get_cursor
 
 ACCOUNT_SNAPSHOT_PENDING = "account_snapshot_pending"
 BUDGET_SETUP_PENDING = "budget_setup_pending"
+COST_REVIEW_PENDING = "cost_review_pending"
 CARD_COUNT_PENDING = "card_count_pending"
 CARD_NAMES_PENDING = "card_names_pending"
 CARD_DETAILS_PENDING = "card_details_pending"
@@ -19,6 +20,8 @@ ONBOARDING_COMPLETE = "onboarding_complete"
 
 SKIP_SNAPSHOT_WORDS = {"pular", "depois", "agora nao", "nao"}
 SKIP_CARD_SETUP_WORDS = {"pular", "depois", "agora nao", "nao", "nenhum", "0"}
+CONFIRM_YES_WORDS = {"sim", "s", "pode ser", "faz sentido", "ok", "perfeito", "fechado"}
+CONFIRM_NO_WORDS = {"nao", "não", "corrigir", "ajustar", "revisar"}
 BALANCE_KEYWORDS = (
     "saldo",
     "saldo atual",
@@ -54,6 +57,45 @@ CARD_NUMBER_WORDS = {
     "cinco": 5,
 }
 
+FIXED_COST_KEYWORDS = (
+    "aluguel",
+    "condominio",
+    "condomínio",
+    "mensalidade",
+    "seguro",
+    "deb auto",
+    "debito aut",
+    "debito automatico",
+    "débito aut",
+    "telefone",
+    "vivo",
+    "claro",
+    "tim",
+    "internet",
+    "energia",
+    "agua",
+    "água",
+    "gas",
+    "gás",
+    "escola",
+    "academia",
+    "parcela",
+    "financiamento",
+)
+VARIABLE_COST_KEYWORDS = (
+    "mercado",
+    "supermercado",
+    "farmacia",
+    "farmácia",
+    "uber",
+    "ifood",
+    "restaurante",
+    "lazer",
+    "pix enviado",
+    "boleto",
+    "loterias",
+)
+
 
 def _normalize_text(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", text.lower().strip())
@@ -77,6 +119,16 @@ def should_skip_card_setup(text: str) -> bool:
     if normalized in SKIP_CARD_SETUP_WORDS:
         return True
     return "nao tenho cartao" in normalized or "nao quero cadastrar cartao" in normalized
+
+
+def is_confirmation_yes(text: str) -> bool:
+    normalized = _normalize_text(text)
+    return normalized in CONFIRM_YES_WORDS
+
+
+def is_confirmation_no(text: str) -> bool:
+    normalized = _normalize_text(text)
+    return normalized in CONFIRM_NO_WORDS
 
 
 def _table_exists(cursor, table_name: str) -> bool:
@@ -143,6 +195,31 @@ def card_count_prompt() -> str:
         "Pode me responder algo como 1, 2 ou 3.\n\n"
         'Se preferir deixar isso para depois, pode responder "PULAR".'
     )
+
+
+def cost_review_prompt(fixed_costs: list[dict[str, float | str]], variable_costs: list[dict[str, float | str]]) -> str:
+    lines = [
+        "Pelo que apareceu no seu extrato, eu ja consegui montar uma primeira leitura dos seus custos mensais.",
+    ]
+
+    if fixed_costs:
+        lines.extend(["", "Custos que parecem mais fixos:"])
+        for item in fixed_costs[:4]:
+            lines.append(f"- {item['descricao']}: R${float(item['valor']):.2f}")
+
+    if variable_costs:
+        lines.extend(["", "Custos que parecem mais variaveis:"])
+        for item in variable_costs[:4]:
+            lines.append(f"- {item['descricao']}: R${float(item['valor']):.2f}")
+
+    lines.extend(
+        [
+            "",
+            'Se fizer sentido, me responda "SIM" e eu considero essa base daqui para frente.',
+            'Se preferir revisar depois, pode responder "PULAR" e seguimos.',
+        ]
+    )
+    return "\n".join(lines)
 
 
 def card_names_prompt(total: int) -> str:
@@ -511,6 +588,144 @@ def save_current_card_details(user_id: int, day: int | None, limit_value: float 
     updated_card["dia_melhor_compra"] = day
     updated_card["limite_credito"] = limit_value
     return updated_card
+
+
+def _latest_statement_analysis(user_id: int) -> dict | None:
+    with get_cursor() as (_, cursor):
+        if not _table_exists(cursor, "documentos_financeiros"):
+            return None
+        cursor.execute(
+            """
+            SELECT extracted_json
+            FROM documentos_financeiros
+            WHERE user_id = %s
+              AND tipo_documento = 'extrato'
+              AND extracted_json IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        )
+        row = cursor.fetchone()
+
+    if not row or not row[0]:
+        return None
+
+    try:
+        parsed = json.loads(row[0])
+    except (TypeError, json.JSONDecodeError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _normalize_amount(value) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return abs(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _classify_cost_type(description: str) -> str | None:
+    normalized = _normalize_text(description)
+    if any(keyword in normalized for keyword in FIXED_COST_KEYWORDS):
+        return "fixo"
+    if any(keyword in normalized for keyword in VARIABLE_COST_KEYWORDS):
+        return "variavel"
+    return None
+
+
+def infer_cost_candidates(user_id: int) -> tuple[list[dict[str, float | str]], list[dict[str, float | str]]]:
+    analysis = _latest_statement_analysis(user_id)
+    if not analysis:
+        return [], []
+
+    debit_entries = analysis.get("debit_entries")
+    if not isinstance(debit_entries, list):
+        return [], []
+
+    fixed_costs: list[dict[str, float | str]] = []
+    variable_costs: list[dict[str, float | str]] = []
+    seen_keys: set[str] = set()
+
+    for entry in debit_entries:
+        if not isinstance(entry, dict):
+            continue
+        description = str(entry.get("description") or "").strip()
+        amount = _normalize_amount(entry.get("amount"))
+        if not description or amount is None:
+            continue
+
+        cost_type = _classify_cost_type(description)
+        if not cost_type:
+            continue
+
+        key = _normalize_text(description)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+
+        payload = {"descricao": description, "valor": amount}
+        if cost_type == "fixo":
+            fixed_costs.append(payload)
+        else:
+            variable_costs.append(payload)
+
+    return fixed_costs[:4], variable_costs[:4]
+
+
+def has_cost_review_candidates(user_id: int) -> bool:
+    fixed_costs, variable_costs = infer_cost_candidates(user_id)
+    return bool(fixed_costs or variable_costs)
+
+
+def is_cost_review_completed(user_id: int) -> bool:
+    with get_cursor() as (_, cursor):
+        if not _column_exists(cursor, "configuracoes_usuario", "custos_onboarding_concluido"):
+            return False
+        cursor.execute(
+            "SELECT custos_onboarding_concluido FROM configuracoes_usuario WHERE user_id = %s",
+            (user_id,),
+        )
+        row = cursor.fetchone()
+    return bool(row and row[0])
+
+
+def save_cost_candidates(user_id: int, confirmed: bool) -> None:
+    fixed_costs, variable_costs = infer_cost_candidates(user_id)
+    with get_cursor() as (conn, cursor):
+        if _table_exists(cursor, "custos_mensais"):
+            cursor.execute("DELETE FROM custos_mensais WHERE user_id = %s AND origem = 'extrato'", (user_id,))
+            if confirmed:
+                for item in fixed_costs:
+                    cursor.execute(
+                        """
+                        INSERT INTO custos_mensais (user_id, descricao, valor_medio, tipo_custo, confirmado, origem)
+                        VALUES (%s, %s, %s, 'fixo', TRUE, 'extrato')
+                        """,
+                        (user_id, item["descricao"], item["valor"]),
+                    )
+                for item in variable_costs:
+                    cursor.execute(
+                        """
+                        INSERT INTO custos_mensais (user_id, descricao, valor_medio, tipo_custo, confirmado, origem)
+                        VALUES (%s, %s, %s, 'variavel', TRUE, 'extrato')
+                        """,
+                        (user_id, item["descricao"], item["valor"]),
+                    )
+
+        if _column_exists(cursor, "configuracoes_usuario", "custos_onboarding_concluido"):
+            cursor.execute(
+                """
+                UPDATE configuracoes_usuario
+                SET custos_onboarding_concluido = TRUE,
+                    updated_at = NOW()
+                WHERE user_id = %s
+                """,
+                (user_id,),
+            )
+        conn.commit()
 
 
 def parse_card_names_flexible(text: str, expected_count: int) -> list[str]:
