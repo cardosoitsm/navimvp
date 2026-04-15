@@ -59,8 +59,7 @@ from app.services.onboarding import (
     get_onboarding_state,
     get_pending_card_total,
     parse_card_count,
-    parse_card_names,
-    parse_card_names_flexible,
+    parse_card_names_assisted,
     parse_card_details_message,
     parse_balance_message,
     save_current_card_details,
@@ -369,7 +368,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                     )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
 
-            card_names = parse_card_names_flexible(mensagem, expected_count)
+            card_names = parse_card_names_assisted(mensagem, expected_count)
             if card_names:
                 save_card_names(user_id, card_names)
                 set_pending_card_index(user_id, 0)

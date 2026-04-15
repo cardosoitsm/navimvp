@@ -1,7 +1,11 @@
+import json
 import re
 import unicodedata
 from decimal import Decimal, InvalidOperation
 
+from openai import OpenAI
+
+from app.config import get_settings
 from app.db import get_cursor
 
 ACCOUNT_SNAPSHOT_PENDING = "account_snapshot_pending"
@@ -449,7 +453,7 @@ def advance_card_progress(user_id: int) -> dict[str, int | str | None] | None:
 
 
 def _parse_decimal_value(raw_amount: str) -> Decimal:
-    cleaned = raw_amount.lower().replace("r$", "").replace(" ", "").strip()
+    cleaned = raw_amount.lower().replace("r$", "").replace(" ", "").strip().rstrip(".")
     multiplier = Decimal("1")
 
     if cleaned.endswith("k"):
@@ -469,7 +473,7 @@ def parse_card_details_message(text: str) -> tuple[int | None, float | None]:
     day = int(day_match.group(1)) if day_match else None
 
     amount_matches = re.findall(
-        r"(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d{2})?[km]?|\d+(?:,\d{2})?[km]?)",
+        r"(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d{2})?[km]?\.?|\d+(?:,\d{2})?[km]?\.?)",
         normalized,
     )
     limit_value = None
@@ -539,6 +543,108 @@ def parse_card_names_flexible(text: str, expected_count: int) -> list[str]:
     if len(names) != expected_count:
         return []
     return names
+
+
+def parse_card_names_assisted(text: str, expected_count: int) -> list[str]:
+    def _looks_like_card_name(candidate: str) -> bool:
+        normalized_candidate = _normalize_text(candidate)
+        forbidden_markers = (
+            "quero chamar",
+            "vou chamar",
+            "cartoes",
+            "cartao",
+            "nome",
+            "claro",
+            "perfeito",
+            "esses cartoes",
+            "estes cartoes",
+        )
+        return not any(marker in normalized_candidate for marker in forbidden_markers)
+
+    cleaned_text = text.strip()
+    if not cleaned_text or expected_count <= 0:
+        return []
+
+    if ":" in cleaned_text:
+        left_side, right_side = cleaned_text.split(":", 1)
+        normalized_left = _normalize_text(left_side)
+        if any(keyword in normalized_left for keyword in ("cart", "nome", "chamar")):
+            cleaned_text = right_side.strip(" .:-")
+    else:
+        cleaned_text = re.sub(
+            r"^(?:claro|perfeito|beleza|ok|tudo bem)\W*",
+            "",
+            cleaned_text,
+            flags=re.IGNORECASE,
+        ).strip()
+        cleaned_text = re.sub(
+            r"^(?:quero\s+chamar\s+(?:estes?|esses|meus)?\s*cart[oõ]es?\s+de|"
+            r"vou\s+chamar\s+(?:estes?|esses|meus)?\s*cart[oõ]es?\s+de|"
+            r"os\s+cart[oõ]es?\s+s[aã]o|"
+            r"meus?\s+cart[oõ]es?\s+s[aã]o|"
+            r"cart[oõ]es?\s+s[aã]o|"
+            r"os\s+nomes?\s+s[aã]o|"
+            r"nomes?\s+s[aã]o)\s*",
+            "",
+            cleaned_text,
+            flags=re.IGNORECASE,
+        ).strip(" .:-")
+
+    names = parse_card_names_flexible(cleaned_text, expected_count)
+    if names and all(_looks_like_card_name(name) for name in names):
+        return names
+
+    settings = get_settings()
+    if not settings.openai_api_key:
+        return []
+
+    try:
+        client = OpenAI(api_key=settings.openai_api_key)
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Extraia apenas os nomes dos cartoes citados pelo usuario e retorne somente JSON valido no formato "
+                        '{"card_names":["nome 1","nome 2"]}. '
+                        "Ignore saudacoes, confirmacoes e o resto da frase."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Frase do usuario: {text}\n"
+                        f"Trecho ja limpo: {cleaned_text}\n"
+                        f"Quantidade esperada de cartoes: {expected_count}\n"
+                        "Responda somente com a lista dos nomes, sem repetir o resto da frase."
+                    ),
+                },
+            ],
+        )
+        payload = (response.choices[0].message.content or "{}").strip()
+        if "```" in payload:
+            parts = payload.split("```")
+            if len(parts) > 1:
+                payload = parts[1].replace("json", "").strip()
+
+        data = json.loads(payload)
+        if not isinstance(data, dict):
+            return []
+
+        raw_names = data.get("card_names")
+        if not isinstance(raw_names, list):
+            return []
+
+        normalized_names = [str(name).strip(" .:-") for name in raw_names if str(name).strip(" .:-")]
+        if len(normalized_names) != expected_count:
+            return []
+        if not all(_looks_like_card_name(name) for name in normalized_names):
+            return []
+
+        return normalized_names
+    except Exception:
+        return []
 
 
 def build_card_setup_confirmation(names: list[str]) -> str:
