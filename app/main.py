@@ -54,6 +54,7 @@ from app.services.onboarding import (
     get_pending_card_total,
     parse_card_count,
     parse_card_names,
+    parse_card_names_flexible,
     parse_balance_message,
     save_card_count,
     save_card_names,
@@ -298,10 +299,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                     return Response(content=build_twiml(resposta), media_type="application/xml")
 
                 set_onboarding_state(user_id, CARD_NAMES_PENDING)
-                resposta = (
-                    "Perfeito. Quero deixar isso organizado do jeito que faz sentido para voce.\n\n"
-                    f"{card_names_prompt(card_total)}"
-                )
+                resposta = card_names_prompt(card_total)
                 return Response(content=build_twiml(resposta), media_type="application/xml")
 
             if intent == "document_request":
@@ -346,11 +344,11 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                     )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
 
-            card_names = parse_card_names(mensagem, expected_count)
+            card_names = parse_card_names_flexible(mensagem, expected_count)
             if card_names:
                 save_card_names(user_id, card_names)
                 set_onboarding_state(user_id, DOCUMENT_ONBOARDING_PENDING)
-                confirmed_names = get_card_names(user_id)
+                confirmed_names = get_card_names(user_id) or card_names
                 resposta = (
                     f"{build_card_setup_confirmation(confirmed_names)}\n\n"
                     f"{document_invite_prompt(user_id)}"

@@ -146,7 +146,7 @@ def card_names_prompt(total: int) -> str:
         )
 
     return (
-        f"Perfeito. Entao vamos cadastrar esses {total} cartoes.\n\n"
+        f"Entao vamos cadastrar esses {total} cartoes.\n\n"
         "Me diga como voce quer chamar cada um deles, de preferencia na ordem, separado por virgula.\n"
         "Por exemplo: Nubank, Itau, Cartao da Casa"
     )
@@ -316,17 +316,66 @@ def save_card_names(user_id: int, names: list[str]) -> None:
 
 def get_card_names(user_id: int) -> list[str]:
     with get_cursor() as (_, cursor):
-        cursor.execute(
-            """
-            SELECT nome_cartao
-            FROM cartoes_usuario
-            WHERE user_id = %s AND ativo = TRUE
-            ORDER BY ordem ASC
-            """,
-            (user_id,),
-        )
+        if not _table_exists(cursor, "cartoes_usuario"):
+            return []
+        if _column_exists(cursor, "cartoes_usuario", "ativo"):
+            cursor.execute(
+                """
+                SELECT nome_cartao
+                FROM cartoes_usuario
+                WHERE user_id = %s AND ativo = TRUE
+                ORDER BY ordem ASC
+                """,
+                (user_id,),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT nome_cartao
+                FROM cartoes_usuario
+                WHERE user_id = %s
+                ORDER BY ordem ASC
+                """,
+                (user_id,),
+            )
         rows = cursor.fetchall()
     return [str(row[0]) for row in rows]
+
+
+def parse_card_names_flexible(text: str, expected_count: int) -> list[str]:
+    if expected_count <= 0:
+        return []
+
+    cleaned_text = text.strip()
+    if not cleaned_text:
+        return []
+
+    normalized = _normalize_text(cleaned_text)
+    prefix_patterns = (
+        "meu cartao",
+        "cartao",
+        "nome",
+        "o nome e",
+        "meus cartoes sao",
+        "os nomes sao",
+        "nomes",
+        "meus cartoes",
+        "cartoes",
+    )
+    for prefix in prefix_patterns:
+        if normalized.startswith(prefix):
+            cleaned_text = cleaned_text[len(prefix):].strip(" .:-")
+            break
+
+    if expected_count == 1:
+        candidate = cleaned_text.strip(" .:-")
+        return [candidate] if candidate else []
+
+    parts = re.split(r"\s*(?:,|;|\n|\be\b)\s*", cleaned_text, flags=re.IGNORECASE)
+    names = [part.strip(" .:-") for part in parts if part.strip(" .:-")]
+    if len(names) != expected_count:
+        return []
+    return names
 
 
 def build_card_setup_confirmation(names: list[str]) -> str:
