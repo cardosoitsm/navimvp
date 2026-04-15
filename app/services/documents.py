@@ -35,6 +35,59 @@ def _normalize_text(text: str) -> str:
     return normalized.encode("ascii", "ignore").decode("ascii")
 
 
+def _format_ptbr_date(value: Any) -> str | None:
+    if not value:
+        return None
+
+    if hasattr(value, "strftime"):
+        try:
+            return value.strftime("%d-%m-%Y")
+        except Exception:
+            pass
+
+    normalized = _normalize_date(value)
+    if not normalized:
+        return None
+
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"):
+        try:
+            return datetime.strptime(normalized, fmt).strftime("%d-%m-%Y")
+        except ValueError:
+            continue
+    return str(value)
+
+
+def _save_conversation_focus(user_id: int, topic: str | None, card_id: int | None = None) -> None:
+    with get_cursor() as (conn, cursor):
+        cursor.execute(
+            """
+            UPDATE configuracoes_usuario
+            SET ultimo_topico = %s,
+                ultimo_cartao_id = %s,
+                updated_at = NOW()
+            WHERE user_id = %s
+            """,
+            (topic, card_id, user_id),
+        )
+        conn.commit()
+
+
+def _get_conversation_focus(user_id: int) -> tuple[str | None, int | None]:
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            """
+            SELECT ultimo_topico, ultimo_cartao_id
+            FROM configuracoes_usuario
+            WHERE user_id = %s
+            """,
+            (user_id,),
+        )
+        row = cursor.fetchone()
+    if not row:
+        return None, None
+    return row[0], int(row[1]) if row[1] is not None else None
+
+
 def _parse_openai_json(content: str) -> dict[str, Any]:
     payload = content.strip()
     if "```" in payload:
@@ -561,7 +614,7 @@ def _find_best_card_match(user_id: int, message_text: str) -> dict[str, Any] | N
 def build_invoice_status_message(user_id: int, message_text: str) -> str:
     cards = get_cards(user_id)
     if not cards:
-        return "Ainda nao encontrei cartoes cadastrados por aqui. Se quiser, eu posso te ajudar a cadastrar seus cartoes primeiro."
+        return "Ainda não encontrei cartões cadastrados por aqui. Se quiser, eu posso te ajudar a cadastrar seus cartões primeiro."
 
     selected_card = _find_best_card_match(user_id, message_text)
     if not selected_card and len(cards) == 1:
@@ -570,7 +623,7 @@ def build_invoice_status_message(user_id: int, message_text: str) -> str:
     if not selected_card:
         card_names = ", ".join(str(card["nome_cartao"]) for card in cards[:4])
         return (
-            "Consigo sim. So me diga de qual cartao voce quer consultar a fatura.\n\n"
+            "Consigo sim. Só me diga de qual cartão você quer consultar a fatura.\n\n"
             f"Hoje eu tenho estes cadastrados por aqui: {card_names}."
         )
 
@@ -608,9 +661,15 @@ def build_invoice_status_message(user_id: int, message_text: str) -> str:
                     break
 
     card_name = str(selected_card["nome_cartao"])
+    _save_conversation_focus(
+        user_id,
+        "invoice_status",
+        int(selected_card["id"]) if selected_card.get("id") is not None else None,
+    )
+
     if not row:
         return (
-            f"Ainda nao encontrei uma fatura salva para o {card_name}.\n\n"
+            f"Ainda não encontrei uma fatura salva para o {card_name}.\n\n"
             f"Se quiser, pode me mandar a fatura atual do {card_name} que eu organizo isso por aqui."
         )
 
@@ -618,12 +677,38 @@ def build_invoice_status_message(user_id: int, message_text: str) -> str:
     vencimento = row[1]
     pagamento_minimo = float(row[2]) if row[2] is not None else None
 
-    resposta = [f"A ultima fatura que tenho salva do {card_name} esta em R${valor_total:.2f}."]
-    if vencimento:
-        resposta.append(f"O vencimento identificado e {vencimento}.")
+    resposta = [f"A última fatura que tenho salva do {card_name} está em R${valor_total:.2f}."]
+    vencimento_formatado = _format_ptbr_date(vencimento)
+    if vencimento_formatado:
+        resposta.append(f"O vencimento identificado é {vencimento_formatado}.")
     if pagamento_minimo is not None:
-        resposta.append(f"O pagamento minimo dela ficou em R${pagamento_minimo:.2f}.")
+        resposta.append(f"O pagamento mínimo dela ficou em R${pagamento_minimo:.2f}.")
     return "\n\n".join(resposta)
+
+
+def is_invoice_followup_message(user_id: int, message_text: str) -> bool:
+    normalized = _normalize_text(message_text)
+    if not normalized:
+        return False
+
+    last_topic, _ = _get_conversation_focus(user_id)
+    if last_topic != "invoice_status":
+        return False
+
+    if not _find_best_card_match(user_id, message_text):
+        return False
+
+    followup_starts = (
+        "e do ",
+        "e da ",
+        "e o do ",
+        "e a do ",
+        "e o ",
+        "e a ",
+        "do ",
+        "da ",
+    )
+    return normalized.startswith(followup_starts) or len(normalized.split()) <= 6
 
 
 def _download_media_bytes(media_url: str) -> bytes:

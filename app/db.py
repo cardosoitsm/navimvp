@@ -143,6 +143,14 @@ SCHEMA_STATEMENTS = (
     ADD COLUMN IF NOT EXISTS custos_onboarding_concluido BOOLEAN NOT NULL DEFAULT FALSE
     """,
     """
+    ALTER TABLE configuracoes_usuario
+    ADD COLUMN IF NOT EXISTS ultimo_topico VARCHAR(50) NULL
+    """,
+    """
+    ALTER TABLE configuracoes_usuario
+    ADD COLUMN IF NOT EXISTS ultimo_cartao_id BIGINT NULL
+    """,
+    """
     ALTER TABLE faturas_cartao
     ADD COLUMN IF NOT EXISTS cartao_id BIGINT NULL
     """,

@@ -31,6 +31,7 @@ from app.services.documents import (
     document_upload_prompt,
     get_incoming_media,
     has_document_type,
+    is_invoice_followup_message,
     is_document_onboarding_completed,
     is_waiting_for_document,
     process_stored_document,
@@ -167,6 +168,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
 
     msg_lower = normalize_text(mensagem)
     intent = detect_intent(mensagem)
+    if intent == "transaction" and is_invoice_followup_message(user_id, mensagem):
+        intent = "invoice_status"
     onboarding_state = get_onboarding_state(user_id)
     existing_card_names = get_card_names(user_id)
 
