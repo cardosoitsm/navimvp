@@ -469,18 +469,19 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 return Response(content=build_twiml(resposta), media_type="application/xml")
 
             if incoming_media:
-                resposta = _register_document_upload("fatura_cartao")
+                _register_document_upload("fatura_cartao")
                 next_card = advance_card_progress(user_id)
                 if next_card:
                     resposta = (
-                        f"{resposta}\n\n"
-                        f"Agora pode me mandar a fatura atual do {next_card['nome_cartao']}."
+                        f"Perfeito. Ja deixei a fatura do {current_card['nome_cartao']} salva por aqui.\n\n"
+                        "Isso ja me ajuda a acompanhar melhor esse cartao e a deixar sua base financeira mais redonda.\n\n"
+                        f"Agora me manda a fatura atual do {next_card['nome_cartao']}."
                     )
                 else:
                     complete_document_onboarding(user_id)
                     resposta = (
-                        f"{resposta}\n\n"
-                        "Perfeito. Com isso, terminei de organizar sua base inicial e ja posso te acompanhar melhor daqui para frente."
+                        f"Perfeito. Ja deixei a fatura do {current_card['nome_cartao']} salva por aqui.\n\n"
+                        "Com isso, terminei de organizar sua base inicial e agora ja consigo te acompanhar de um jeito bem mais completo daqui para frente."
                     )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
 
