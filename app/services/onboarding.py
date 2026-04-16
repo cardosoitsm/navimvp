@@ -7,6 +7,7 @@ from openai import OpenAI
 
 from app.config import get_settings
 from app.db import get_cursor
+from app.services.formatting import format_brl
 
 ACCOUNT_SNAPSHOT_PENDING = "account_snapshot_pending"
 BUDGET_SETUP_PENDING = "budget_setup_pending"
@@ -95,6 +96,33 @@ VARIABLE_COST_KEYWORDS = (
     "boleto",
     "loterias",
 )
+
+COST_CATEGORY_KEYWORDS = {
+    "moradia": ("aluguel", "condominio", "condomínio", "agua", "água", "gas", "gás", "energia", "luz"),
+    "saude": ("farmacia", "farmácia", "seguro", "plano", "consulta", "medico", "médico"),
+    "alimentacao": ("mercado", "supermercado", "ifood", "restaurante", "padaria", "cantina"),
+    "transporte": ("uber", "combustivel", "combustível", "posto", "99", "pedagio", "pedágio"),
+    "comunicacao": ("telefone", "vivo", "claro", "tim", "internet"),
+    "financeiro": ("boleto", "juros", "iof", "tarifa", "financiamento", "parcela"),
+    "lazer": ("lazer", "cinema", "show", "streaming", "loterias"),
+}
+
+GENERIC_COST_TOKENS = {
+    "pix",
+    "enviado",
+    "recebido",
+    "debito",
+    "deb",
+    "auto",
+    "automatico",
+    "pagamento",
+    "boleto",
+    "outros",
+    "bancos",
+    "banco",
+    "periodo",
+    "parc",
+}
 
 
 def _normalize_text(text: str) -> str:
@@ -205,21 +233,31 @@ def cost_review_prompt(fixed_costs: list[dict[str, float | str]], variable_costs
     if fixed_costs:
         lines.extend(["", "Custos que parecem mais fixos:"])
         for item in fixed_costs[:4]:
-            lines.append(f"- {item['descricao']}: R${float(item['valor']):.2f}")
+            categoria = str(item.get("categoria") or "sem categoria")
+            lines.append(f"- {item['descricao']}: {format_brl(float(item['valor']))} | categoria sugerida: {categoria}")
 
     if variable_costs:
         lines.extend(["", "Custos que parecem mais variaveis:"])
         for item in variable_costs[:4]:
-            lines.append(f"- {item['descricao']}: R${float(item['valor']):.2f}")
+            categoria = str(item.get("categoria") or "sem categoria")
+            lines.append(f"- {item['descricao']}: {format_brl(float(item['valor']))} | categoria sugerida: {categoria}")
 
     lines.extend(
         [
             "",
             'Se fizer sentido, me responda "SIM" e eu considero essa base daqui para frente.',
+            'Se quiser ajustar algo, pode me dizer por exemplo: "Seguro e fixo" ou "Mercado entra em alimentacao".',
             'Se preferir revisar depois, pode responder "PULAR" e seguimos.',
         ]
     )
     return "\n".join(lines)
+
+
+def cost_review_adjustment_prompt() -> str:
+    return (
+        "Posso ajustar isso com voce por aqui.\n\n"
+        'Me diga no formato que for mais natural, por exemplo: "Seguro e fixo" ou "Mercado entra em alimentacao".'
+    )
 
 
 def card_names_prompt(total: int) -> str:
@@ -650,6 +688,20 @@ def _classify_cost_type(description: str) -> str | None:
     return None
 
 
+def _classify_cost_category(description: str) -> str | None:
+    normalized = _normalize_text(description)
+    for category, keywords in COST_CATEGORY_KEYWORDS.items():
+        if any(keyword in normalized for keyword in keywords):
+            return category
+    return None
+
+
+def _cost_reference_tokens(description: str) -> list[str]:
+    normalized = _normalize_text(description)
+    tokens = [token for token in re.split(r"\W+", normalized) if len(token) > 2]
+    return [token for token in tokens if token not in GENERIC_COST_TOKENS]
+
+
 def infer_cost_candidates(user_id: int) -> tuple[list[dict[str, float | str]], list[dict[str, float | str]]]:
     analysis = _latest_statement_analysis(user_id)
     if not analysis:
@@ -680,7 +732,12 @@ def infer_cost_candidates(user_id: int) -> tuple[list[dict[str, float | str]], l
             continue
         seen_keys.add(key)
 
-        payload = {"descricao": description, "valor": amount}
+        payload = {
+            "descricao": description,
+            "valor": amount,
+            "tipo_custo": cost_type,
+            "categoria": _classify_cost_category(description) or "outros",
+        }
         if cost_type == "fixo":
             fixed_costs.append(payload)
         else:
@@ -706,8 +763,14 @@ def is_cost_review_completed(user_id: int) -> bool:
     return bool(row and row[0])
 
 
-def save_cost_candidates(user_id: int, confirmed: bool) -> None:
-    fixed_costs, variable_costs = infer_cost_candidates(user_id)
+def save_cost_candidates(
+    user_id: int,
+    confirmed: bool,
+    fixed_costs: list[dict[str, float | str]] | None = None,
+    variable_costs: list[dict[str, float | str]] | None = None,
+) -> None:
+    if fixed_costs is None or variable_costs is None:
+        fixed_costs, variable_costs = infer_cost_candidates(user_id)
     with get_cursor() as (conn, cursor):
         if _table_exists(cursor, "custos_mensais"):
             cursor.execute("DELETE FROM custos_mensais WHERE user_id = %s AND origem = 'extrato'", (user_id,))
@@ -715,18 +778,18 @@ def save_cost_candidates(user_id: int, confirmed: bool) -> None:
                 for item in fixed_costs:
                     cursor.execute(
                         """
-                        INSERT INTO custos_mensais (user_id, descricao, valor_medio, tipo_custo, confirmado, origem)
-                        VALUES (%s, %s, %s, 'fixo', TRUE, 'extrato')
+                        INSERT INTO custos_mensais (user_id, descricao, categoria, valor_medio, tipo_custo, confirmado, origem)
+                        VALUES (%s, %s, %s, %s, 'fixo', TRUE, 'extrato')
                         """,
-                        (user_id, item["descricao"], item["valor"]),
+                        (user_id, item["descricao"], item.get("categoria"), item["valor"]),
                     )
                 for item in variable_costs:
                     cursor.execute(
                         """
-                        INSERT INTO custos_mensais (user_id, descricao, valor_medio, tipo_custo, confirmado, origem)
-                        VALUES (%s, %s, %s, 'variavel', TRUE, 'extrato')
+                        INSERT INTO custos_mensais (user_id, descricao, categoria, valor_medio, tipo_custo, confirmado, origem)
+                        VALUES (%s, %s, %s, %s, 'variavel', TRUE, 'extrato')
                         """,
-                        (user_id, item["descricao"], item["valor"]),
+                        (user_id, item["descricao"], item.get("categoria"), item["valor"]),
                     )
 
         if _column_exists(cursor, "configuracoes_usuario", "custos_onboarding_concluido"):
@@ -740,6 +803,73 @@ def save_cost_candidates(user_id: int, confirmed: bool) -> None:
                 (user_id,),
             )
         conn.commit()
+
+
+def parse_cost_review_adjustments(
+    text: str,
+    fixed_costs: list[dict[str, float | str]],
+    variable_costs: list[dict[str, float | str]],
+) -> tuple[list[dict[str, float | str]], list[dict[str, float | str]]] | None:
+    normalized = _normalize_text(text)
+    if not normalized:
+        return None
+
+    all_costs = [dict(item) for item in fixed_costs + variable_costs]
+    if not all_costs:
+        return None
+
+    clauses = [part.strip() for part in re.split(r"[.;\n]+", normalized) if part.strip()]
+    changed = False
+    for cost in all_costs:
+        tokens = _cost_reference_tokens(str(cost.get("descricao") or ""))
+        if not tokens:
+            continue
+
+        for clause in clauses:
+            if not any(token in clause for token in tokens):
+                continue
+
+            if "fix" in clause:
+                cost["tipo_custo"] = "fixo"
+                changed = True
+            elif "vari" in clause:
+                cost["tipo_custo"] = "variavel"
+                changed = True
+
+            for category, keywords in COST_CATEGORY_KEYWORDS.items():
+                if category in clause or any(keyword in clause for keyword in keywords):
+                    cost["categoria"] = category
+                    changed = True
+                    break
+
+            if changed:
+                break
+
+    if not changed:
+        return None
+
+    updated_fixed = [item for item in all_costs if item.get("tipo_custo") == "fixo"]
+    updated_variable = [item for item in all_costs if item.get("tipo_custo") == "variavel"]
+    return updated_fixed[:4], updated_variable[:4]
+
+
+def build_cost_review_confirmation(
+    fixed_costs: list[dict[str, float | str]],
+    variable_costs: list[dict[str, float | str]],
+) -> str:
+    lines = ["Perfeito. Ajustei essa leitura inicial dos seus custos assim:"]
+
+    if fixed_costs:
+        lines.extend(["", "Fixos:"])
+        for item in fixed_costs[:4]:
+            lines.append(f"- {item['descricao']} | {item.get('categoria', 'outros')}")
+
+    if variable_costs:
+        lines.extend(["", "Variáveis:"])
+        for item in variable_costs[:4]:
+            lines.append(f"- {item['descricao']} | {item.get('categoria', 'outros')}")
+
+    return "\n".join(lines)
 
 
 def parse_card_names_flexible(text: str, expected_count: int) -> list[str]:

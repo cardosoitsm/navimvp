@@ -52,12 +52,14 @@ from app.services.onboarding import (
     DOCUMENT_ONBOARDING_PENDING,
     advance_card_progress,
     build_card_setup_confirmation,
+    build_cost_review_confirmation,
     ONBOARDING_COMPLETE,
     account_snapshot_prompt,
     card_count_prompt,
     card_details_prompt,
     card_invoice_prompt,
     card_names_prompt,
+    cost_review_adjustment_prompt,
     cost_review_prompt,
     has_cost_review_candidates,
     get_current_card,
@@ -72,6 +74,7 @@ from app.services.onboarding import (
     parse_card_names_llm_first,
     parse_card_details_message,
     parse_balance_message,
+    parse_cost_review_adjustments,
     save_current_card_details,
     save_card_count,
     save_cost_candidates,
@@ -334,6 +337,22 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
+        adjusted_costs = parse_cost_review_adjustments(mensagem, fixed_costs, variable_costs)
+        if adjusted_costs:
+            adjusted_fixed, adjusted_variable = adjusted_costs
+            save_cost_candidates(
+                user_id,
+                confirmed=True,
+                fixed_costs=adjusted_fixed,
+                variable_costs=adjusted_variable,
+            )
+            set_onboarding_state(user_id, CARD_COUNT_PENDING)
+            resposta = (
+                f"{build_cost_review_confirmation(adjusted_fixed, adjusted_variable)}\n\n"
+                f"{card_count_prompt()}"
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
         if is_confirmation_yes(mensagem):
             save_cost_candidates(user_id, confirmed=True)
             set_onboarding_state(user_id, CARD_COUNT_PENDING)
@@ -344,12 +363,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
         if is_confirmation_no(mensagem):
-            save_cost_candidates(user_id, confirmed=False)
-            set_onboarding_state(user_id, CARD_COUNT_PENDING)
-            resposta = (
-                "Sem problema. A gente ajusta essa classificacao com mais calma depois.\n\n"
-                f"{card_count_prompt()}"
-            )
+            resposta = cost_review_adjustment_prompt()
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
         resposta = cost_review_prompt(fixed_costs, variable_costs)
