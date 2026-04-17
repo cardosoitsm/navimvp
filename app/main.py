@@ -54,6 +54,7 @@ from app.services.financial_analysis import (
 from app.services.financial_health import build_financial_health_message
 from app.services.voice import is_audio_media, transcribe_audio
 from app.services.onboarding import (
+    USER_REGISTRATION_PENDING,
     ACCOUNT_SNAPSHOT_PENDING,
     BUDGET_SETUP_PENDING,
     CARD_COUNT_PENDING,
@@ -96,6 +97,11 @@ from app.services.onboarding import (
     save_current_balance,
     set_pending_card_index,
     set_onboarding_state,
+    get_user_name,
+    parse_user_name,
+    registration_prompt,
+    registration_retry_prompt,
+    save_user_name,
     should_skip_account_snapshot,
     should_skip_card_setup,
 )
@@ -178,7 +184,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         resposta = (
             "Olá! Que bom ter você por aqui.\n\n"
             "Eu sou o Navi e vou te ajudar a acompanhar seus gastos de um jeito leve, sem complicação.\n\n"
-            f"{account_snapshot_prompt()}"
+            f"{registration_prompt()}"
         )
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
@@ -212,6 +218,19 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
     logger.info("webhook user_id=%s intent=%s media=%s", user_id, intent, bool(incoming_media))
     onboarding_state = get_onboarding_state(user_id)
     existing_card_names = get_card_names(user_id)
+
+    if onboarding_state == USER_REGISTRATION_PENDING:
+        nome = parse_user_name(mensagem)
+        if nome:
+            save_user_name(user_id, nome)
+            set_onboarding_state(user_id, ACCOUNT_SNAPSHOT_PENDING)
+            resposta = (
+                f"Prazer, {nome}! Vou usar esse nome para te chamar por aqui.\n\n"
+                f"{account_snapshot_prompt()}"
+            )
+        else:
+            resposta = registration_retry_prompt()
+        return Response(content=build_twiml(resposta), media_type="application/xml")
 
     if onboarding_state == ACCOUNT_SNAPSHOT_PENDING:
         if incoming_media:
@@ -670,8 +689,10 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         elif intent == "financial_recommendations":
             resposta = build_recommendations_message(user_id)
         elif intent == "greeting":
+            _nome = get_user_name(user_id)
+            _saudacao = f"Olá, {_nome}!" if _nome else "Olá!"
             resposta = (
-                "Olá! Por aqui estou de olho nos seus gastos. "
+                f"{_saudacao} Por aqui estou de olho nos seus gastos. "
                 "Pode registrar uma despesa, me perguntar quanto gastou, "
                 "ver sua saúde financeira ou enviar um extrato ou fatura."
             )

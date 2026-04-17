@@ -191,6 +191,10 @@ SCHEMA_STATEMENTS = (
     """,
     "CREATE INDEX IF NOT EXISTS idx_transacoes_user_id ON transacoes(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_transacoes_user_categoria ON transacoes(user_id, categoria)",
+    """
+    ALTER TABLE usuarios
+    ADD COLUMN IF NOT EXISTS nome VARCHAR(255) NULL
+    """,
 )
 
 

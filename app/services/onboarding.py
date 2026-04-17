@@ -9,6 +9,7 @@ from app.config import get_settings
 from app.db import get_cursor
 from app.services.formatting import format_brl
 
+USER_REGISTRATION_PENDING = "user_registration_pending"
 ACCOUNT_SNAPSHOT_PENDING = "account_snapshot_pending"
 BUDGET_SETUP_PENDING = "budget_setup_pending"
 COST_REVIEW_PENDING = "cost_review_pending"
@@ -130,10 +131,88 @@ def _normalize_text(text: str) -> str:
     return normalized.encode("ascii", "ignore").decode("ascii")
 
 
+# ---------------------------------------------------------------------------
+# User registration (issue #46)
+# ---------------------------------------------------------------------------
+
+_NAME_MIN_LEN = 2
+_NAME_MAX_LEN = 60
+_NON_NAME_TOKENS = {
+    "sim", "nao", "não", "ok", "pular", "depois", "oi", "ola", "olá",
+    "bom", "dia", "tarde", "noite", "tudo", "bem", "claro", "pode",
+    "s", "n", "nao sei", "não sei",
+}
+
+
+def registration_prompt() -> str:
+    return (
+        "Antes de começar, qual é o seu nome?\n\n"
+        "Pode ser seu primeiro nome ou como você prefere ser chamado. "
+        "Uso essa informação apenas para te chamar pelo nome aqui dentro — "
+        "nenhum dado sensível é solicitado e seus dados são protegidos conforme a LGPD."
+    )
+
+
+def registration_retry_prompt() -> str:
+    return (
+        "Não consegui identificar um nome válido. "
+        "Pode me dizer como você gosta de ser chamado? "
+        "Pode ser seu primeiro nome, como João ou Maria."
+    )
+
+
+def parse_user_name(text: str) -> str | None:
+    stripped = text.strip()
+    if not stripped or len(stripped) > _NAME_MAX_LEN:
+        return None
+
+    normalized = _normalize_text(stripped)
+
+    # Reject obvious non-names
+    if normalized in _NON_NAME_TOKENS:
+        return None
+
+    # Remove common lead-in phrases: "me chamo X", "meu nome é X", "pode me chamar de X"
+    for pattern in (
+        r"^(?:me\s+chamo|meu\s+nome\s+(?:é|e)|pode\s+me\s+chamar\s+de|sou\s+o|sou\s+a)\s+",
+    ):
+        stripped = re.sub(pattern, "", stripped, flags=re.IGNORECASE).strip()
+
+    # Must contain at least one letter
+    if not re.search(r"[A-Za-zÀ-ÿ]", stripped):
+        return None
+
+    # Must be >= min length after trimming
+    if len(stripped) < _NAME_MIN_LEN:
+        return None
+
+    # Capitalize each word nicely
+    return stripped.title()
+
+
+def save_user_name(user_id: int, nome: str) -> None:
+    with get_cursor() as (conn, cursor):
+        cursor.execute(
+            "UPDATE usuarios SET nome = %s WHERE id = %s",
+            (nome, user_id),
+        )
+        conn.commit()
+
+
+def get_user_name(user_id: int) -> str | None:
+    with get_cursor() as (_, cursor):
+        cursor.execute("SELECT nome FROM usuarios WHERE id = %s", (user_id,))
+        row = cursor.fetchone()
+    return str(row[0]) if row and row[0] else None
+
+
+# ---------------------------------------------------------------------------
+
+
 def account_snapshot_prompt() -> str:
     return (
-        "Para eu te orientar melhor desde o comeco, queria entender como esta sua vida financeira hoje.\n\n"
-        "Voce pode me dizer seu saldo atual ou me enviar o extrato de hoje.\n\n"
+        "Para eu te orientar melhor desde o começo, queria entender como está sua vida financeira hoje.\n\n"
+        "Você pode me dizer seu saldo atual ou me enviar o extrato de hoje.\n\n"
         'Se preferir, pode responder "PULAR" e seguimos mesmo assim.'
     )
 
