@@ -383,7 +383,7 @@ def _card_invoice_message(user_id: int) -> str:
         return ""
     if len(card_names) == 1:
         return f"a fatura do {card_names[0]}"
-    return f"as faturas dos seus cartoes. Podemos comecar pela do {card_names[0]}"
+    return f"as faturas dos seus cartões. Podemos começar pela do {card_names[0]}"
 
 
 def document_invite_prompt(user_id: int | None = None) -> str:
@@ -391,16 +391,16 @@ def document_invite_prompt(user_id: int | None = None) -> str:
         invoice_target = _card_invoice_message(user_id)
         if not invoice_target:
             return (
-                "Ja recebi seu extrato e, com isso, ja tenho uma boa base inicial para te acompanhar.\n\n"
-                "Se quiser incluir cartoes nessa organizacao, me diga quantos cartoes voce quer cadastrar."
+                "Já recebi seu extrato e, com isso, já tenho uma boa base inicial para te acompanhar.\n\n"
+                "Se quiser incluir cartões nessa organização, me diga quantos cartões você quer cadastrar."
             )
         return (
-            f"Ja recebi seu extrato, entao o proximo passo mais util e olhar {invoice_target}.\n\n"
+            f"Já recebi seu extrato, então o próximo passo mais útil é olhar {invoice_target}.\n\n"
             'Se quiser enviar agora, me responda "SIM". Se preferir deixar para depois, pode dizer "PULAR".'
         )
 
     return (
-        "Se fizer sentido para voce, eu tambem posso olhar seu extrato ou sua fatura para entender melhor sua situacao financeira.\n\n"
+        "Se fizer sentido para você, eu também posso olhar seu extrato ou sua fatura para entender melhor sua situação financeira.\n\n"
         'Se quiser enviar agora, me responda "SIM". Se preferir deixar para depois, pode dizer "PULAR".'
     )
 
@@ -422,12 +422,12 @@ def document_upload_prompt(user_id: int | None = None) -> str:
                 'Pode ser imagem ou PDF. Se preferir deixar isso para depois, e so responder "PULAR".'
             )
         return (
-            f"Perfeito. Como eu ja tenho seu extrato, agora pode me mandar {invoice_target}.\n\n"
+            f"Perfeito. Como eu já tenho seu extrato, agora pode me mandar {invoice_target}.\n\n"
             'Pode ser imagem ou PDF. Se mudar de ideia, e so responder "PULAR".'
         )
 
     return (
-        "Perfeito. Pode me mandar agora um extrato da conta ou uma fatura do cartao.\n\n"
+        "Perfeito. Pode me mandar agora um extrato da conta ou uma fatura do cartão.\n\n"
         'Pode ser imagem ou PDF. Se mudar de ideia, e so responder "PULAR".'
     )
 
@@ -1084,7 +1084,7 @@ def process_received_document(user_id: int, media_url: str, media_content_type: 
 
     if media_content_type not in SUPPORTED_MEDIA_TYPES:
         return (
-            "Recebi seu documento, mas por enquanto eu so consigo analisar imagens e PDFs. "
+            "Recebi seu documento, mas por enquanto eu só consigo analisar imagens e PDFs. "
             "Vou guardar essa referencia para as proximas evolucoes."
         )
 
@@ -1131,15 +1131,15 @@ def process_stored_document(
 
 def build_document_receipt_message(tipo_documento: str) -> str:
     if tipo_documento == "fatura_cartao":
-        detalhe = "Recebi sua fatura. Isso vai me ajudar a acompanhar melhor sua situacao."
+        detalhe = "Recebi sua fatura. Isso vai me ajudar a acompanhar melhor sua situação."
     elif tipo_documento == "extrato":
-        detalhe = "Recebi seu extrato. Isso me ajuda a entender melhor como esta sua vida financeira."
+        detalhe = "Recebi seu extrato. Isso me ajuda a entender melhor como está sua vida financeira."
     else:
         detalhe = "Recebi seu documento. Vou guardar esse material para te ajudar melhor daqui para frente."
 
     return (
         f"{detalhe}\n\n"
-        "Por enquanto, eu ja consigo guardar isso com seguranca e seguir com o seu acompanhamento."
+        "Por enquanto, eu já consigo guardar isso com segurança e seguir com o seu acompanhamento."
     )
 
 

@@ -219,7 +219,7 @@ def parse_balance_message(text: str) -> float | None:
 
 def card_count_prompt() -> str:
     return (
-        "Agora me conta uma coisa importante: quantos cartoes voce quer acompanhar comigo?\n\n"
+        "Agora me conta uma coisa importante: quantos cartões você quer acompanhar comigo?\n\n"
         "Pode me responder algo como 1, 2 ou 3.\n\n"
         'Se preferir deixar isso para depois, pode responder "PULAR".'
     )
@@ -255,7 +255,7 @@ def cost_review_prompt(fixed_costs: list[dict[str, float | str]], variable_costs
 
 def cost_review_adjustment_prompt() -> str:
     return (
-        "Posso ajustar isso com voce por aqui.\n\n"
+        "Posso ajustar isso com você por aqui.\n\n"
         'Me diga no formato que for mais natural, por exemplo: "Seguro e fixo" ou "Mercado entra em alimentacao".'
     )
 
@@ -263,13 +263,13 @@ def cost_review_adjustment_prompt() -> str:
 def card_names_prompt(total: int) -> str:
     if total <= 1:
         return (
-            "Perfeito. Como voce quer chamar esse cartao por aqui?\n\n"
-            "Pode ser o nome do banco ou um apelido que faca sentido para voce."
+            "Perfeito. Como você quer chamar esse cartão por aqui?\n\n"
+            "Pode ser o nome do banco ou um apelido que faça sentido para você."
         )
 
     return (
-        f"Entao vamos cadastrar esses {total} cartoes.\n\n"
-        "Me diga como voce quer chamar cada um deles, de preferencia na ordem, separado por virgula.\n"
+        f"Então vamos cadastrar esses {total} cartões.\n\n"
+        "Me diga como você quer chamar cada um deles, de preferência na ordem, separado por vírgula.\n"
         "Por exemplo: Nubank, Itau, Cartao da Casa"
     )
 
@@ -277,7 +277,7 @@ def card_names_prompt(total: int) -> str:
 def card_details_prompt(card_name: str) -> str:
     return (
         f"Agora me ajuda com mais um detalhe do {card_name}.\n\n"
-        "Qual e o melhor dia de compra e qual e o limite desse cartao?\n"
+        "Qual é o melhor dia de compra e qual é o limite desse cartão?\n"
         "Por exemplo: melhor dia 20 e limite 5000\n\n"
         'Se preferir, pode responder "PULAR".'
     )
