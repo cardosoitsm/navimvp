@@ -1,8 +1,11 @@
+import logging
+
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 
 from app.auth import create_token, get_current_user
 from app.config import get_settings
+from app.services.logger import get_logger
 from app.db import init_db, ping_db
 from app.schemas import AdminResetRequest, Message, User
 from app.services.budgets import (
@@ -102,11 +105,14 @@ from app.services.users import (
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name, debug=settings.app_debug)
+logger = get_logger("navi.webhook")
 
 
 @app.on_event("startup")
 def startup() -> None:
+    logging.basicConfig(level=logging.INFO)
     init_db()
+    logger.info("startup env=%s", settings.app_env)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -180,6 +186,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
     intent = detect_intent(mensagem)
     if intent == "transaction" and is_invoice_followup_message(user_id, mensagem):
         intent = "invoice_status"
+    logger.info("webhook user_id=%s intent=%s media=%s", user_id, intent, bool(incoming_media))
     onboarding_state = get_onboarding_state(user_id)
     existing_card_names = get_card_names(user_id)
 
@@ -658,6 +665,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
     except HTTPException as exc:
         resposta = exc.detail
     except Exception:
+        logger.exception("webhook_error user_id=%s intent=%s", user_id, intent)
         resposta = "Tive um problema para processar sua mensagem agora. Se puder, tente novamente em instantes."
 
     return Response(content=build_twiml(resposta), media_type="application/xml")
