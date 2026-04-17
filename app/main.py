@@ -47,6 +47,7 @@ from app.services.documents import (
     start_document_onboarding,
 )
 from app.services.financial_health import build_financial_health_message
+from app.services.voice import is_audio_media, transcribe_audio
 from app.services.onboarding import (
     ACCOUNT_SNAPSHOT_PENDING,
     BUDGET_SETUP_PENDING,
@@ -141,6 +142,23 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
     mensagem = (form.get("Body") or "").strip()
     numero = (form.get("From") or "").strip()
     incoming_media = get_incoming_media(form)
+
+    # Transcreve áudio (mensagens de voz do WhatsApp) antes do processamento normal
+    if incoming_media:
+        _, media_content_type = incoming_media
+        if is_audio_media(media_content_type):
+            transcript = transcribe_audio(incoming_media[0])
+            if transcript:
+                mensagem = transcript
+                incoming_media = None
+            else:
+                return Response(
+                    content=build_twiml(
+                        "Recebi seu áudio, mas não consegui transcrever agora. "
+                        "Se puder, tente enviar a mensagem por texto."
+                    ),
+                    media_type="application/xml",
+                )
 
     if not numero:
         return Response(
