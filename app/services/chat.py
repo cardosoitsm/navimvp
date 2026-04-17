@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from openai import OpenAI
 
 from app.config import get_settings
+from app.services.logger import get_logger
 from app.db import get_cursor
 from app.schemas import ParsedTransaction, PendingTransaction
 from app.services.budgets import build_budget_feedback
@@ -12,6 +13,8 @@ from app.services.conversation import save_pending_confirmation, should_request_
 from app.services.formatting import format_brl
 from app.services.summary import gerar_insight
 
+
+logger = get_logger("navi.chat")
 
 REGRAS_CATEGORIAS = {
     "alimentacao": ["ifood", "restaurante", "lanche", "pizza", "hamburguer"],
@@ -123,6 +126,7 @@ def process_user_message(text: str, user_id: int) -> dict[str, str]:
     try:
         transactions = _extract_transactions_from_ai(text)
     except (json.JSONDecodeError, ValueError):
+        logger.warning("ai_parse_error text_len=%d", len(text))
         raise HTTPException(
             status_code=422,
             detail=(
@@ -136,6 +140,7 @@ def process_user_message(text: str, user_id: int) -> dict[str, str]:
     except HTTPException:
         raise
     except Exception as exc:
+        logger.exception("ai_call_error text_len=%d", len(text))
         raise HTTPException(
             status_code=502,
             detail="Não foi possível interpretar a mensagem agora.",

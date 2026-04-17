@@ -16,6 +16,7 @@ from starlette.datastructures import FormData
 from app.config import get_settings
 from app.db import get_cursor
 from app.services.formatting import format_brl, format_ptbr_date
+from app.services.logger import get_logger
 from app.services.onboarding import (
     CARD_INVOICE_PENDING,
     DOCUMENT_ONBOARDING_PENDING,
@@ -25,6 +26,8 @@ from app.services.onboarding import (
     get_card_names,
     set_onboarding_state,
 )
+
+logger = get_logger("navi.documents")
 
 SKIP_DOCUMENT_WORDS = {"pular", "depois", "agora nao", "nao"}
 START_DOCUMENT_WORDS = {"sim", "s", "quero", "vamos", "enviar"}
@@ -1109,16 +1112,21 @@ def process_stored_document(
     hinted_type: str,
     card_id: int | None = None,
 ) -> None:
+    logger.info("doc_processing_start document_id=%d user_id=%d type=%s", document_id, user_id, hinted_type)
     try:
         media_bytes = _download_media_bytes(media_url)
         analysis = _extract_document_analysis(message_text, media_content_type, media_bytes, hinted_type)
     except Exception:
+        logger.exception("doc_processing_error document_id=%d user_id=%d", document_id, user_id)
         analysis = None
 
     _update_document_analysis(document_id, analysis)
 
     if analysis:
         _persist_financial_context(user_id, analysis, card_id)
+        logger.info("doc_processing_done document_id=%d user_id=%d", document_id, user_id)
+    else:
+        logger.warning("doc_processing_no_analysis document_id=%d user_id=%d", document_id, user_id)
 
 
 def build_document_receipt_message(tipo_documento: str) -> str:
