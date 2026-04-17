@@ -360,6 +360,38 @@ ONBOARDING_COMPLETE
 
 ---
 
+#### [S4] Posso comprar isso? — Issue #24
+- O usuário pergunta se pode fazer uma compra de determinado valor.
+- O Navi extrai o valor da mensagem e cruza com renda, compromissos e saldo.
+- **Critérios de aceite:**
+  - [ ] Intent `affordability_check` detectado em frases como "posso comprar", "consigo pagar", "tenho dinheiro para".
+  - [ ] Valor extraído da mensagem via regex.
+  - [ ] Quando há renda: calcula comprometimento após a compra e classifica (alto ≥ 100%, atenção ≥ 80%, viável).
+  - [ ] Quando não há renda: usa saldo estimado como referência.
+  - [ ] Sem dados suficientes: pede mais informações.
+
+#### [S4] Vale a pena esse empréstimo? — Issue #26
+- O usuário descreve condições de empréstimo e pergunta se vale a pena.
+- O Navi extrai parcela mensal, prazo e total; calcula custo em juros e impacto no orçamento.
+- **Critérios de aceite:**
+  - [ ] Intent `loan_evaluation` detectado em frases como "vale a pena esse empréstimo", "parcelas de X", "financiamento de R$Y".
+  - [ ] Extrai: valor total, parcela mensal, número de parcelas (ao menos dois desses).
+  - [ ] Calcula custo em juros quando há parcela + prazo.
+  - [ ] Quando há renda: calcula comprometimento após o empréstimo.
+  - [ ] Quando faltam dados: solicita ao usuário.
+
+#### [S4] Recomendações práticas — Issue #27
+- O usuário pede sugestões para melhorar sua situação financeira.
+- O Navi usa GPT com o perfil financeiro do usuário para gerar 3 recomendações acionáveis.
+- Fallback por regras quando a API não está disponível.
+- **Critérios de aceite:**
+  - [ ] Intent `financial_recommendations` detectado em frases como "como economizar", "me dá uma dica", "como melhorar".
+  - [ ] 3 recomendações personalizadas baseadas nos dados do usuário.
+  - [ ] Linguagem natural, sem listas numeradas.
+  - [ ] Fallback por regras quando não há dados suficientes ou sem API key.
+
+---
+
 ### S5 — Experiência avançada
 
 #### [S5] Confirmação antes de salvar dados — Issue #30

@@ -46,6 +46,11 @@ from app.services.documents import (
     should_start_document_onboarding,
     start_document_onboarding,
 )
+from app.services.financial_analysis import (
+    build_affordability_message,
+    build_loan_evaluation_message,
+    build_recommendations_message,
+)
 from app.services.financial_health import build_financial_health_message
 from app.services.voice import is_audio_media, transcribe_audio
 from app.services.onboarding import (
@@ -658,6 +663,12 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             resposta = build_invoice_status_message(user_id, mensagem)
         elif intent == "financial_health":
             resposta = build_financial_health_message(user_id)
+        elif intent == "affordability_check":
+            resposta = build_affordability_message(user_id, mensagem)
+        elif intent == "loan_evaluation":
+            resposta = build_loan_evaluation_message(user_id, mensagem)
+        elif intent == "financial_recommendations":
+            resposta = build_recommendations_message(user_id)
         elif intent == "card_setup_request":
             set_onboarding_state(user_id, CARD_COUNT_PENDING)
             resposta = (
