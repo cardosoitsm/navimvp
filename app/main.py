@@ -669,6 +669,12 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             resposta = build_loan_evaluation_message(user_id, mensagem)
         elif intent == "financial_recommendations":
             resposta = build_recommendations_message(user_id)
+        elif intent == "greeting":
+            resposta = (
+                "Olá! Por aqui estou de olho nos seus gastos. "
+                "Pode registrar uma despesa, me perguntar quanto gastou, "
+                "ver sua saúde financeira ou enviar um extrato ou fatura."
+            )
         elif intent == "card_setup_request":
             set_onboarding_state(user_id, CARD_COUNT_PENDING)
             resposta = (
@@ -689,8 +695,17 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             resposta = resumo_categoria(user_id, "alimentacao")
         elif "quanto gastei" in msg_lower:
             resposta = resumo_mes(user_id)
+        elif not mensagem:
+            resposta = "Recebi sua mensagem, mas estava vazia. Me manda o que você quiser registrar ou perguntar."
         else:
-            resposta = process_user_message(mensagem, user_id)["resposta"]
+            try:
+                resposta = process_user_message(mensagem, user_id)["resposta"]
+            except HTTPException as exc:
+                # 422 = mensagem não reconhecida como transação — responde com contexto útil
+                if exc.status_code == 422:
+                    resposta = exc.detail
+                else:
+                    raise
     except HTTPException as exc:
         resposta = exc.detail
     except Exception:

@@ -425,6 +425,19 @@ ONBOARDING_COMPLETE
 
 ---
 
+#### [S5] Experiência mais fluida no WhatsApp — Issue #31
+- Mensagens longas (> 1.500 caracteres) são divididas automaticamente em múltiplos `<Message>` TwiML em parágrafos limpos.
+- Saudações ("oi", "bom dia", "como vai") são reconhecidas como intent `greeting` e recebem resposta natural sem tentar parsear como transação.
+- Mensagem vazia recebe resposta orientativa em vez de erro.
+- Respostas de erro de transação não reconhecida fornecem contexto útil em linguagem natural.
+- **Critérios de aceite:**
+  - [ ] Mensagem com > 1.500 chars é enviada como múltiplos `<Message>` sem cortar palavras.
+  - [ ] "Oi", "boa tarde", "tudo bem" retornam mensagem de boas-vindas, não erro de transação.
+  - [ ] Mensagem vazia retorna orientação natural.
+  - [ ] Todos os textos ao usuário usam português com diacríticos corretos.
+
+---
+
 ### S6 — Qualidade e produção
 
 #### [S6] Datas e valores 100% padronizados — Issue #33
