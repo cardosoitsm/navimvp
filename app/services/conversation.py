@@ -11,6 +11,13 @@ from app.schemas import PendingTransaction
 CONFIRMATION_YES = {"sim", "s", "confirmar", "confirmo", "ok", "pode confirmar"}
 CONFIRMATION_NO = {"nao", "n", "cancelar", "corrigir"}
 
+GREETING_PATTERNS = {
+    "oi", "ola", "olá", "oi navi", "ola navi", "olá navi",
+    "bom dia", "boa tarde", "boa noite",
+    "tudo bem", "tudo bom", "como vai", "e ai", "e aí",
+    "hi", "hello", "hey",
+}
+
 QUERY_RECENT_PATTERNS = (
     "ultimos gastos",
     "ultimas transacoes",
@@ -136,6 +143,8 @@ def detect_intent(text: str) -> str:
         return "confirm_yes"
     if normalized in CONFIRMATION_NO:
         return "confirm_no"
+    if normalized in GREETING_PATTERNS:
+        return "greeting"
     if any(pattern in normalized for pattern in QUERY_RECENT_PATTERNS):
         return "recent_transactions"
     if any(pattern in normalized for pattern in QUERY_BUDGET_PATTERNS):
