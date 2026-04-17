@@ -429,6 +429,25 @@ def document_upload_prompt(user_id: int | None = None) -> str:
     )
 
 
+def document_upload_retry_prompt(card_name: str | None = None) -> str:
+    if card_name:
+        return (
+            f"Ainda aguardo a fatura do {card_name}. "
+            'Pode enviar como imagem ou PDF. Para pular, responda "PULAR".'
+        )
+    return (
+        "Ainda aguardo o documento. "
+        'Pode enviar como imagem ou PDF. Para pular, responda "PULAR".'
+    )
+
+
+def document_invite_retry_prompt() -> str:
+    return (
+        'Pode me responder "SIM" para enviar um documento agora '
+        'ou "PULAR" para deixar essa etapa para depois.'
+    )
+
+
 def should_start_document_onboarding(text: str) -> bool:
     return _normalize_text(text) in START_DOCUMENT_WORDS
 

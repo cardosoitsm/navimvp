@@ -29,7 +29,9 @@ from app.services.documents import (
     build_invoice_status_message,
     complete_document_onboarding,
     document_invite_prompt,
+    document_invite_retry_prompt,
     document_upload_prompt,
+    document_upload_retry_prompt,
     get_incoming_media,
     has_document_type,
     is_invoice_followup_message,
@@ -55,11 +57,17 @@ from app.services.onboarding import (
     build_cost_review_confirmation,
     ONBOARDING_COMPLETE,
     account_snapshot_prompt,
+    account_snapshot_retry_prompt,
+    budget_setup_retry_prompt,
     card_count_prompt,
+    card_count_retry_prompt,
     card_invoice_prompt,
+    card_invoice_retry_prompt,
     card_names_prompt,
+    card_names_retry_prompt,
     cost_review_adjustment_prompt,
     cost_review_prompt,
+    cost_review_retry_prompt,
     has_cost_review_candidates,
     get_current_card,
     get_card_names,
@@ -220,7 +228,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
-        resposta = account_snapshot_prompt()
+        resposta = account_snapshot_retry_prompt()
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
     if onboarding_state == BUDGET_SETUP_PENDING or not is_budget_onboarding_completed(user_id):
@@ -312,10 +320,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                     f"{card_count_prompt()}"
                 )
             return Response(content=build_twiml(resposta), media_type="application/xml")
-        resposta = (
-            "Ainda nao consegui anotar seus limites mensais.\n\n"
-            f"{onboarding_budget_prompt()}"
-        )
+        resposta = budget_setup_retry_prompt()
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
     if onboarding_state == COST_REVIEW_PENDING:
@@ -363,7 +368,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             resposta = cost_review_adjustment_prompt()
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
-        resposta = cost_review_prompt(fixed_costs, variable_costs)
+        resposta = cost_review_retry_prompt()
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
     if onboarding_state == CARD_COUNT_PENDING:
@@ -413,7 +418,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
 
-            resposta = card_count_prompt()
+            resposta = card_count_retry_prompt()
             return Response(content=build_twiml(resposta), media_type="application/xml")
         except HTTPException as exc:
             return Response(content=build_twiml(exc.detail), media_type="application/xml")
@@ -460,10 +465,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
 
-            resposta = (
-                "Quero deixar os nomes dos seus cartoes do jeito que faca sentido para voce.\n\n"
-                f"{card_names_prompt(expected_count)}"
-            )
+            resposta = card_names_retry_prompt(expected_count)
             return Response(content=build_twiml(resposta), media_type="application/xml")
         except HTTPException as exc:
             return Response(content=build_twiml(exc.detail), media_type="application/xml")
@@ -511,17 +513,14 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                     resposta = "Tudo bem. Podemos completar as faturas depois. Por enquanto, sigo te ajudando com o restante."
                 return Response(content=build_twiml(resposta), media_type="application/xml")
 
-            resposta = card_invoice_prompt(str(current_card["nome_cartao"]))
+            resposta = card_invoice_retry_prompt(str(current_card["nome_cartao"]))
             return Response(content=build_twiml(resposta), media_type="application/xml")
         except HTTPException as exc:
             return Response(content=build_twiml(exc.detail), media_type="application/xml")
         except Exception:
             current_card = get_current_card(user_id)
             fallback_name = current_card["nome_cartao"] if current_card else "esse cartao"
-            resposta = (
-                f"Tive um problema para seguir com a fatura do {fallback_name} agora.\n\n"
-                f"{card_invoice_prompt(str(fallback_name))}"
-            )
+            resposta = card_invoice_retry_prompt(str(fallback_name))
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
     if onboarding_state != ONBOARDING_COMPLETE and not is_document_onboarding_completed(user_id):
@@ -570,7 +569,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                     complete_document_onboarding(user_id)
                     resposta = "Tudo bem. Podemos olhar esses documentos depois. Por enquanto, sigo te ajudando com o restante."
                     return Response(content=build_twiml(resposta), media_type="application/xml")
-                resposta = document_upload_prompt(user_id)
+                resposta = document_upload_retry_prompt()
                 return Response(content=build_twiml(resposta), media_type="application/xml")
             except HTTPException as exc:
                 return Response(content=build_twiml(exc.detail), media_type="application/xml")
@@ -589,7 +588,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             complete_document_onboarding(user_id)
             resposta = "Tudo bem. Podemos olhar seus documentos depois. Por enquanto, seguimos com o restante."
             return Response(content=build_twiml(resposta), media_type="application/xml")
-        resposta = document_invite_prompt(user_id)
+        resposta = document_invite_retry_prompt()
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
     if onboarding_state == ONBOARDING_COMPLETE and has_document_type(user_id, "extrato") and not existing_card_names:

@@ -1180,6 +1180,56 @@ def set_onboarding_state(user_id: int, state: str) -> None:
         conn.commit()
 
 
+def account_snapshot_retry_prompt() -> str:
+    return (
+        "Não consegui identificar um saldo ou extrato nessa mensagem.\n\n"
+        "Pode me dizer o valor atual da sua conta (ex: R$3.200) ou enviar uma foto do extrato. "
+        'Se preferir pular essa etapa, responda "PULAR".'
+    )
+
+
+def budget_setup_retry_prompt() -> str:
+    return (
+        "Não consegui identificar os limites nessa mensagem.\n\n"
+        "Tente no formato: Mercado 1200, farmacia 290, lazer 800. "
+        'Ou responda "PULAR" se preferir definir isso depois.'
+    )
+
+
+def cost_review_retry_prompt() -> str:
+    return (
+        'Pode me responder "SIM" para confirmar essa leitura, "NÃO" para ajustar algum item, '
+        'ou me dizer algo como "Seguro é fixo" ou "Mercado entra em alimentação". '
+        'Se preferir, responda "PULAR".'
+    )
+
+
+def card_count_retry_prompt() -> str:
+    return (
+        "Não entendi a quantidade. Pode me dizer um número, como 1, 2 ou 3? "
+        'Se não quiser acompanhar cartões agora, responda "PULAR".'
+    )
+
+
+def card_names_retry_prompt(expected_count: int) -> str:
+    if expected_count == 1:
+        return (
+            "Não consegui identificar o nome do cartão. "
+            "Pode me dizer só o nome, como Nubank ou Itaú?"
+        )
+    return (
+        f"Não consegui identificar os {expected_count} nomes. "
+        "Pode me mandar separados por vírgula? Ex: Nubank, Itaú, Bradesco."
+    )
+
+
+def card_invoice_retry_prompt(card_name: str) -> str:
+    return (
+        f"Ainda aguardo a fatura do {card_name}. "
+        'Pode enviar como imagem ou PDF. Se preferir pular, responda "PULAR".'
+    )
+
+
 def save_current_balance(user_id: int, balance: float) -> None:
     with get_cursor() as (conn, cursor):
         cursor.execute(
