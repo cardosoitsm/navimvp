@@ -373,6 +373,16 @@ ONBOARDING_COMPLETE
   - [ ] "NÃO" descarta e solicita correção.
   - [ ] Nova transação pendente sobrescreve a anterior.
 
+#### [S5] Suporte a voz — Issue #28
+- O Navi aceita mensagens de voz enviadas pelo WhatsApp (formato `audio/ogg; codecs=opus`).
+- O áudio é transcrito via OpenAI Whisper (`whisper-1`) em português antes de ser processado como texto normal.
+- Se a transcrição falhar, o usuário recebe mensagem orientando a enviar por texto.
+- Não há saída de voz — respostas são sempre em texto.
+- **Critérios de aceite:**
+  - [ ] Mensagem de voz transcrita e processada como texto.
+  - [ ] Outros tipos de áudio (mp3, wav, webm, amr) também aceitos.
+  - [ ] Falha na transcrição não quebra o fluxo — retorna mensagem de fallback.
+
 #### [S5] Leitura de recibos e imagens — Issue #29
 - O Navi aceita imagens de recibos, extratos e faturas enviadas diretamente no WhatsApp.
 - Processamento via GPT-4.1-mini com visão multimodal.
