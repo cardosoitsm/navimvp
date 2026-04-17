@@ -466,6 +466,17 @@ ONBOARDING_COMPLETE
 - Parsing de nomes de cartão não aceita saudações ou confirmações como nomes válidos.
 - Parsing de quantidade de cartões aceita palavras por extenso além de dígitos.
 
+#### [S6] Etapa de registro do usuário — Issue #46
+- Novo usuário WhatsApp inicia em `user_registration_pending` antes de `account_snapshot_pending`.
+- Navi solicita apenas o nome preferido (primeiro nome ou apelido) — sem dados sensíveis.
+- Prompt inclui aviso de privacidade LGPD: uso restrito a personalização, dados protegidos.
+- Nome válido: 2–60 caracteres, sem tokens inválidos (e.g., "sim", "não", números puros).
+- Resposta inválida → retry com mensagem curta sem repetir o aviso completo.
+- Após nome aceito: saudação personalizada + transição automática para `account_snapshot_pending`.
+- Coluna `nome VARCHAR(255) NULL` adicionada à tabela `usuarios` via migração idempotente.
+- Saudação (`greeting`) personalizada: "Olá, {nome}!" quando nome cadastrado.
+- Usuários registrados via API REST não passam por essa etapa (iniciam direto em `account_snapshot_pending`).
+
 ---
 
 ## Detalhamento de Integrações

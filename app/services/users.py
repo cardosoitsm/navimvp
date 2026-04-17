@@ -4,6 +4,7 @@ from psycopg2 import IntegrityError
 from app.auth import hash_password, verify_password
 from app.db import get_cursor
 from app.services.budgets import ensure_user_settings
+from app.services.onboarding import USER_REGISTRATION_PENDING, set_onboarding_state
 
 AUTO_PASSWORD_PREFIX = "whatsapp-user:"
 
@@ -56,6 +57,7 @@ def get_or_create_whatsapp_user(numero: str) -> tuple[int, bool]:
         conn.commit()
         user_id = int(created[0])
         ensure_user_settings(user_id)
+        set_onboarding_state(user_id, USER_REGISTRATION_PENDING)
         return user_id, True
 
 
