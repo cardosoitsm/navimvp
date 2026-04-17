@@ -786,6 +786,8 @@ def _extract_document_analysis(
         '"minimum_payment":numero ou null,'
         '"due_date":"YYYY-MM-DD" ou null,'
         '"issuer":"texto" ou null,'
+        '"credit_limit":numero ou null,'
+        '"best_purchase_day":numero inteiro entre 1 e 31 ou null,'
         '"detected_income":numero ou null,'
         '"income_description":"texto" ou null,'
         '"income_confidence":"high|medium|low" ou null,'
@@ -794,7 +796,10 @@ def _extract_document_analysis(
         '"credit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}],'
         '"debit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}],'
         '"estimated_fixed_expenses":numero ou null,'
-        '"top_items":["item 1","item 2"]}'
+        '"top_items":["item 1","item 2"]}. '
+        "Para faturas de cartao: credit_limit e o limite total do cartao (campo 'limite', 'limite do cartao' ou similar). "
+        "best_purchase_day e o melhor dia para compras (campo 'melhor dia para compras', 'data de fechamento' menos alguns dias, ou similar). "
+        "Se nao estiver explicito, retorne null."
     )
 
     if media_content_type == "application/pdf":
@@ -943,6 +948,29 @@ def _persist_financial_context(user_id: int, analysis: dict[str, Any], card_id: 
                 (user_id, card_id, invoice_total, due_date or "", minimum_payment, issuer),
             )
 
+        if document_type == "fatura_cartao" and card_id is not None:
+            credit_limit = _safe_float(analysis.get("credit_limit"))
+            best_purchase_day_raw = analysis.get("best_purchase_day")
+            best_purchase_day = None
+            if best_purchase_day_raw is not None:
+                try:
+                    day = int(best_purchase_day_raw)
+                    if 1 <= day <= 31:
+                        best_purchase_day = day
+                except (TypeError, ValueError):
+                    pass
+
+            if credit_limit is not None or best_purchase_day is not None:
+                cursor.execute(
+                    """
+                    UPDATE cartoes_usuario
+                    SET dia_melhor_compra = COALESCE(%s, dia_melhor_compra),
+                        limite_credito    = COALESCE(%s, limite_credito)
+                    WHERE id = %s
+                    """,
+                    (best_purchase_day, credit_limit, card_id),
+                )
+
         conn.commit()
 
 
@@ -996,11 +1024,23 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
     elif document_type == "fatura_cartao":
         lines.append("Recebi sua fatura e ja extraí alguns dados importantes.")
         if invoice_total is not None:
-            lines.append(f"- valor total da fatura: R${invoice_total:.2f}")
+            lines.append(f"- valor total da fatura: {format_brl(invoice_total)}")
         if due_date:
-            lines.append(f"- vencimento identificado: {due_date}")
+            formatted_due = format_ptbr_date(due_date) or due_date
+            lines.append(f"- vencimento: {formatted_due}")
         if minimum_payment is not None:
-            lines.append(f"- pagamento minimo: R${minimum_payment:.2f}")
+            lines.append(f"- pagamento minimo: {format_brl(minimum_payment)}")
+        credit_limit = _safe_float(analysis.get("credit_limit"))
+        if credit_limit is not None:
+            lines.append(f"- limite do cartao: {format_brl(credit_limit)}")
+        best_purchase_day_raw = analysis.get("best_purchase_day")
+        if best_purchase_day_raw is not None:
+            try:
+                day = int(best_purchase_day_raw)
+                if 1 <= day <= 31:
+                    lines.append(f"- melhor dia para compras: dia {day}")
+            except (TypeError, ValueError):
+                pass
     else:
         lines.append("Recebi seu documento financeiro e consegui registrar algumas informacoes iniciais.")
 
