@@ -232,6 +232,42 @@ def build_budget_status_message(user_id: int, categoria: str) -> str:
     )
 
 
+def build_all_budgets_status_message(user_id: int) -> str:
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            """
+            SELECT o.categoria, o.limite_mensal,
+                   COALESCE(SUM(t.valor), 0) AS gasto
+            FROM orcamentos o
+            LEFT JOIN transacoes t
+              ON t.user_id = o.user_id
+             AND t.categoria = o.categoria
+             AND DATE_TRUNC('month', t.created_at) = DATE_TRUNC('month', NOW())
+            WHERE o.user_id = %s
+            GROUP BY o.categoria, o.limite_mensal
+            ORDER BY o.categoria
+            """,
+            (user_id,),
+        )
+        rows = cursor.fetchall()
+
+    if not rows:
+        return "Você ainda não configurou limites por categoria."
+
+    linhas = ["Seus limites neste mês:", ""]
+    for categoria, limite_raw, gasto_raw in rows:
+        limite = float(limite_raw)
+        gasto = float(gasto_raw)
+        restante = max(limite - gasto, 0)
+        percentual = (gasto / limite) * 100 if limite > 0 else 0
+        linhas.append(
+            f"- {categoria}: {format_brl(gasto)} de {format_brl(limite)} "
+            f"({percentual:.0f}%) — restam {format_brl(restante)}"
+        )
+
+    return "\n".join(linhas)
+
+
 def _register_alert_if_needed(user_id: int, categoria: str, percentual: float) -> str:
     nivel_disparado = None
     mensagem = ""

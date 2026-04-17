@@ -7,6 +7,7 @@ from app.db import init_db, ping_db
 from app.schemas import AdminResetRequest, Message, User
 from app.services.budgets import (
     budget_edit_prompt,
+    build_all_budgets_status_message,
     build_budget_setup_confirmation,
     build_budget_status_message,
     extract_budget_category,
@@ -716,7 +717,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             if categoria:
                 resposta = build_budget_status_message(user_id, categoria)
             else:
-                resposta = "Me diga a categoria que voce quer consultar, por exemplo: Quanto ainda posso gastar com farmacia?"
+                resposta = build_all_budgets_status_message(user_id)
         elif "quanto gastei" in msg_lower and "transporte" in msg_lower:
             resposta = resumo_categoria(user_id, "transporte")
         elif "quanto gastei" in msg_lower and "alimentacao" in msg_lower:
