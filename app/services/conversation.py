@@ -75,6 +75,54 @@ CARD_SETUP_PATTERNS = (
     "quero cadastrar meus cartoes",
 )
 
+AFFORDABILITY_PATTERNS = (
+    "posso comprar",
+    "consigo comprar",
+    "tenho como comprar",
+    "da pra comprar",
+    "posso pagar",
+    "consigo pagar",
+    "tenho dinheiro para",
+    "consigo arcar",
+    "tenho condicoes de comprar",
+    "vale comprar",
+    "posso adquirir",
+)
+
+LOAN_PATTERNS = (
+    "vale a pena esse emprestimo",
+    "vale a pena o emprestimo",
+    "vale a pena pegar emprestimo",
+    "emprestimo de",
+    "financiamento de",
+    "parcelas de",
+    "quero pegar emprestimo",
+    "devo pegar emprestimo",
+    "devo fazer emprestimo",
+    "contratar emprestimo",
+    "vale o emprestimo",
+    "emprestimo vale",
+)
+
+RECOMMENDATIONS_PATTERNS = (
+    "como melhorar",
+    "como economizar",
+    "dicas financeiras",
+    "recomendacoes",
+    "recomendacoes financeiras",
+    "o que fazer",
+    "como organizar",
+    "me aconselha",
+    "me da uma dica",
+    "como reduzir",
+    "como poupar",
+    "como sair das dividas",
+    "como guardar dinheiro",
+    "me ajuda a melhorar",
+    "o que posso fazer",
+    "como melhorar minha situacao",
+)
+
 
 def normalize_text(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", text.lower().strip())
@@ -98,6 +146,12 @@ def detect_intent(text: str) -> str:
         return "financial_health"
     if any(pattern in normalized for pattern in CARD_SETUP_PATTERNS):
         return "card_setup_request"
+    if any(pattern in normalized for pattern in AFFORDABILITY_PATTERNS):
+        return "affordability_check"
+    if any(pattern in normalized for pattern in LOAN_PATTERNS):
+        return "loan_evaluation"
+    if any(pattern in normalized for pattern in RECOMMENDATIONS_PATTERNS):
+        return "financial_recommendations"
     if any(pattern in normalized for pattern in DOCUMENT_PATTERNS):
         return "document_request"
     if "quanto gastei" in normalized:
