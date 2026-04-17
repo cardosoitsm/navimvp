@@ -144,7 +144,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
 
     if not numero:
         return Response(
-            content=build_twiml("Nao consegui identificar o remetente."),
+            content=build_twiml("Não consegui identificar o remetente."),
             media_type="application/xml",
             status_code=400,
         )
@@ -153,8 +153,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
 
     if novo:
         resposta = (
-            "Ola! Que bom ter voce por aqui.\n\n"
-            "Eu sou o Navi e vou te ajudar a acompanhar seus gastos de um jeito leve, sem complicacao.\n\n"
+            "Olá! Que bom ter você por aqui.\n\n"
+            "Eu sou o Navi e vou te ajudar a acompanhar seus gastos de um jeito leve, sem complicação.\n\n"
             f"{account_snapshot_prompt()}"
         )
         return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -195,8 +195,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             _register_document_upload("extrato")
             set_onboarding_state(user_id, BUDGET_SETUP_PENDING)
             resposta = (
-                "Recebi seu extrato e ja deixei esse arquivo salvo aqui na sua base financeira.\n\n"
-                "Com ele, eu consigo montar seu ponto de partida e usar essas informacoes nas proximas analises.\n\n"
+                "Recebi seu extrato e já deixei esse arquivo salvo aqui na sua base financeira.\n\n"
+                "Com ele, eu consigo montar seu ponto de partida e usar essas informações nas próximas análises.\n\n"
                 f"{onboarding_budget_prompt()}"
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -207,7 +207,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             set_onboarding_state(user_id, BUDGET_SETUP_PENDING)
             resposta = (
                 f"Perfeito. Anotei seu saldo atual em R${balance:.2f}.\n\n"
-                "Isso ja me da um bom ponto de partida para te orientar melhor.\n\n"
+                "Isso já me dá um bom ponto de partida para te orientar melhor.\n\n"
                 f"{onboarding_budget_prompt()}"
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -223,14 +223,14 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         if intent == "document_request":
             resposta = (
                 "Claro. Pode me enviar o extrato de hoje agora mesmo.\n\n"
-                "Se for mais facil, voce tambem pode simplesmente me dizer o saldo atual da sua conta."
+                "Se for mais fácil, você também pode simplesmente me dizer o saldo atual da sua conta."
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
         if intent == "card_setup_request":
             set_onboarding_state(user_id, CARD_COUNT_PENDING)
             resposta = (
-                "Claro. Vamos organizar seus cartoes por aqui tambem.\n\n"
+                "Claro. Vamos organizar seus cartões por aqui também.\n\n"
                 f"{card_count_prompt()}"
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -258,7 +258,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                     )
                     return Response(content=build_twiml(resposta), media_type="application/xml")
                 resposta = (
-                    "Claro, podemos comecar por esse documento.\n\n"
+                    "Claro, podemos começar por esse documento.\n\n"
                     f"{document_upload_prompt(user_id)}\n\n"
                     'Se em algum momento quiser voltar aos limites, me mande algo como "Farmacia 290, mercado 1200".'
                 )
@@ -267,14 +267,14 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 return Response(content=build_twiml(exc.detail), media_type="application/xml")
             except Exception:
                 resposta = (
-                    "Recebi seu documento, mas tive um problema para processa-lo agora. "
+                    "Recebi seu documento, mas tive um problema para processá-lo agora. "
                     "Se puder, tente de novo daqui a pouco."
                 )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
         if incoming_media:
             _register_document_upload()
             resposta = (
-                "Recebi seu documento e ja deixei isso guardado aqui.\n\n"
+                "Recebi seu documento e já deixei isso guardado aqui.\n\n"
                 f"Antes de seguir, {onboarding_budget_prompt()}"
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -289,7 +289,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         if intent == "card_setup_request":
             set_onboarding_state(user_id, CARD_COUNT_PENDING)
             resposta = (
-                "Claro. Vamos organizar seus cartoes antes de seguir.\n\n"
+                "Claro. Vamos organizar seus cartões antes de seguir.\n\n"
                 f"{card_count_prompt()}"
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -385,13 +385,13 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 if has_document_type(user_id, "extrato"):
                     set_onboarding_state(user_id, ONBOARDING_COMPLETE)
                     resposta = (
-                        "Tudo bem. Como eu ja tenho seu extrato, isso ja me da uma boa base inicial para te acompanhar.\n\n"
-                        "Se depois voce quiser cadastrar algum cartao, eu organizo isso com voce."
+                        "Tudo bem. Como eu já tenho seu extrato, isso já me dá uma boa base inicial para te acompanhar.\n\n"
+                        "Se depois você quiser cadastrar algum cartão, eu organizo isso com você."
                     )
                 else:
                     set_onboarding_state(user_id, DOCUMENT_ONBOARDING_PENDING)
                     resposta = (
-                        "Tudo bem. A gente pode cadastrar seus cartoes depois.\n\n"
+                        "Tudo bem. A gente pode cadastrar seus cartões depois.\n\n"
                         f"{document_invite_prompt(user_id)}"
                     )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -403,13 +403,13 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                     if has_document_type(user_id, "extrato"):
                         set_onboarding_state(user_id, ONBOARDING_COMPLETE)
                         resposta = (
-                            "Perfeito. Entendi que voce nao quer acompanhar cartoes por agora.\n\n"
-                            "Como eu ja tenho seu extrato, ja consigo seguir com uma boa base inicial."
+                            "Perfeito. Entendi que você não quer acompanhar cartões por agora.\n\n"
+                            "Como eu já tenho seu extrato, já consigo seguir com uma boa base inicial."
                         )
                     else:
                         set_onboarding_state(user_id, DOCUMENT_ONBOARDING_PENDING)
                         resposta = (
-                            "Perfeito. Entendi que voce nao quer acompanhar cartoes por agora.\n\n"
+                            "Perfeito. Entendi que você não quer acompanhar cartões por agora.\n\n"
                             f"{document_invite_prompt(user_id)}"
                         )
                     return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -420,7 +420,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
 
             if intent == "document_request":
                 resposta = (
-                    "Consigo sim. Antes, so me conta quantos cartoes voce quer acompanhar comigo, que eu organizo isso certinho.\n\n"
+                    "Consigo sim. Antes, só me conta quantos cartões você quer acompanhar comigo, que eu organizo isso certinho.\n\n"
                     f"{card_count_prompt()}"
                 )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -431,8 +431,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             return Response(content=build_twiml(exc.detail), media_type="application/xml")
         except Exception:
             resposta = (
-                "Tive um problema para anotar essa etapa dos cartoes agora. "
-                "Se puder, tente me responder novamente com a quantidade de cartoes."
+                "Tive um problema para anotar essa etapa dos cartões agora. "
+                "Se puder, tente me responder novamente com a quantidade de cartões."
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
@@ -449,13 +449,13 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 if has_document_type(user_id, "extrato"):
                     set_onboarding_state(user_id, ONBOARDING_COMPLETE)
                     resposta = (
-                        "Tudo bem. A gente pode deixar os cartoes para depois.\n\n"
-                        "Como eu ja tenho seu extrato, isso ja me ajuda bastante por enquanto."
+                        "Tudo bem. A gente pode deixar os cartões para depois.\n\n"
+                        "Como eu já tenho seu extrato, isso já me ajuda bastante por enquanto."
                     )
                 else:
                     set_onboarding_state(user_id, DOCUMENT_ONBOARDING_PENDING)
                     resposta = (
-                        "Tudo bem. A gente pode deixar os cartoes para depois.\n\n"
+                        "Tudo bem. A gente pode deixar os cartões para depois.\n\n"
                         f"{document_invite_prompt(user_id)}"
                     )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -478,8 +478,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             return Response(content=build_twiml(exc.detail), media_type="application/xml")
         except Exception:
             resposta = (
-                "Tive um problema para salvar os nomes dos seus cartoes agora. "
-                "Se puder, tente me mandar os nomes novamente separados por virgula."
+                "Tive um problema para salvar os nomes dos seus cartões agora. "
+                "Se puder, tente me mandar os nomes novamente separados por vírgula."
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
@@ -488,7 +488,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             current_card = get_current_card(user_id)
             if not current_card:
                 complete_document_onboarding(user_id)
-                resposta = "Perfeito. Ja organizei essa etapa inicial e agora posso seguir com voce normalmente."
+                resposta = "Perfeito. Já organizei essa etapa inicial e agora posso seguir com você normalmente."
                 return Response(content=build_twiml(resposta), media_type="application/xml")
 
             if incoming_media:
@@ -496,15 +496,15 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 next_card = advance_card_progress(user_id)
                 if next_card:
                     resposta = (
-                        f"Perfeito. Ja deixei a fatura do {current_card['nome_cartao']} salva por aqui.\n\n"
-                        "Isso ja me ajuda a acompanhar melhor esse cartao e a deixar sua base financeira mais redonda.\n\n"
+                        f"Perfeito. Já deixei a fatura do {current_card['nome_cartao']} salva por aqui.\n\n"
+                        "Isso já me ajuda a acompanhar melhor esse cartão e a deixar sua base financeira mais redonda.\n\n"
                         f"Agora me manda a fatura atual do {next_card['nome_cartao']}."
                     )
                 else:
                     complete_document_onboarding(user_id)
                     resposta = (
-                        f"Perfeito. Ja deixei a fatura do {current_card['nome_cartao']} salva por aqui.\n\n"
-                        "Com isso, terminei de organizar sua base inicial e agora ja consigo te acompanhar de um jeito bem mais completo daqui para frente."
+                        f"Perfeito. Já deixei a fatura do {current_card['nome_cartao']} salva por aqui.\n\n"
+                        "Com isso, terminei de organizar sua base inicial e agora já consigo te acompanhar de um jeito bem mais completo daqui para frente."
                     )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
 
@@ -526,7 +526,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             return Response(content=build_twiml(exc.detail), media_type="application/xml")
         except Exception:
             current_card = get_current_card(user_id)
-            fallback_name = current_card["nome_cartao"] if current_card else "esse cartao"
+            fallback_name = current_card["nome_cartao"] if current_card else "esse cartão"
             resposta = card_invoice_retry_prompt(str(fallback_name))
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
@@ -543,13 +543,13 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         if is_budget_edit_request(mensagem):
             resposta = (
                 f"{budget_edit_prompt()}\n\n"
-                "Depois que voce me mandar os novos valores, eu atualizo tudo por aqui."
+                "Depois que você me mandar os novos valores, eu atualizo tudo por aqui."
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
         if intent == "card_setup_request":
             set_onboarding_state(user_id, CARD_COUNT_PENDING)
             resposta = (
-                "Perfeito. Vamos trazer seus cartoes para dentro dessa organizacao.\n\n"
+                "Perfeito. Vamos trazer seus cartões para dentro dessa organização.\n\n"
                 f"{card_count_prompt()}"
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -562,7 +562,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 return Response(content=build_twiml(exc.detail), media_type="application/xml")
             except Exception:
                 resposta = (
-                    "Recebi seu documento, mas tive um problema para processa-lo agora. "
+                    "Recebi seu documento, mas tive um problema para processá-lo agora. "
                     "Se puder, tente novamente daqui a pouco."
                 )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -582,7 +582,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 return Response(content=build_twiml(exc.detail), media_type="application/xml")
             except Exception:
                 resposta = (
-                    "Recebi seu documento, mas tive um problema para processa-lo agora. "
+                    "Recebi seu documento, mas tive um problema para processá-lo agora. "
                     "Se puder, tente novamente daqui a pouco."
                 )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -605,8 +605,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 save_card_count(user_id, card_total)
                 if card_total <= 0:
                     resposta = (
-                        "Perfeito. Entendi que voce nao quer acompanhar cartoes por agora.\n\n"
-                        "Se depois mudar de ideia, eu organizo isso com voce."
+                        "Perfeito. Entendi que você não quer acompanhar cartões por agora.\n\n"
+                        "Se depois mudar de ideia, eu organizo isso com você."
                     )
                 else:
                     set_onboarding_state(user_id, CARD_NAMES_PENDING)
@@ -614,7 +614,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 return Response(content=build_twiml(resposta), media_type="application/xml")
             except Exception:
                 resposta = (
-                    "Entendi que voce quer cadastrar cartoes, mas tive um problema para salvar essa etapa agora.\n\n"
+                    "Entendi que você quer cadastrar cartões, mas tive um problema para salvar essa etapa agora.\n\n"
                     f"{card_count_prompt()}"
                 )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -624,7 +624,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             resposta = _register_document_upload()
             resposta = (
                 f"{resposta}\n\n"
-                "Se quiser me ajudar a interpretar melhor, voce tambem pode escrever se isso e um extrato ou uma fatura."
+                "Se quiser me ajudar a interpretar melhor, você também pode escrever se isso é um extrato ou uma fatura."
             )
         elif intent == "confirm_yes":
             resposta = confirm_pending_transaction(user_id)["resposta"]
@@ -643,7 +643,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         elif intent == "card_setup_request":
             set_onboarding_state(user_id, CARD_COUNT_PENDING)
             resposta = (
-                "Claro. Vamos cadastrar seus cartoes e deixar isso redondo.\n\n"
+                "Claro. Vamos cadastrar seus cartões e deixar isso redondo.\n\n"
                 f"{card_count_prompt()}"
             )
         elif intent == "recent_transactions":

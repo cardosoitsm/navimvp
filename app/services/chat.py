@@ -130,11 +130,10 @@ def process_user_message(text: str, user_id: int) -> dict[str, str]:
         raise HTTPException(
             status_code=422,
             detail=(
-                "Não consegui entender isso como uma transação.\n\n"
-                "Se quiser, tente de um destes jeitos:\n"
-                '- "Gastei R$50 em Uber"\n'
-                '- "Quanto gastei no mês?"\n'
-                '- enviar um extrato ou uma fatura em imagem/PDF'
+                "Não consegui entender isso como uma transação. "
+                "Pode tentar de outra forma? "
+                'Por exemplo: "Gastei R$50 no Uber", "quanto gastei no mês?" '
+                "ou me enviar um extrato ou fatura em imagem/PDF."
             ),
         )
     except HTTPException:
@@ -150,11 +149,9 @@ def process_user_message(text: str, user_id: int) -> dict[str, str]:
         raise HTTPException(
             status_code=422,
             detail=(
-                "Não encontrei uma transação válida nessa mensagem.\n\n"
-                "Mas eu ainda posso te ajudar de outras formas:\n"
-                '- registrar um gasto, como "Gastei R$50 em Uber"\n'
-                '- resumir seus gastos do mês\n'
-                '- receber um extrato ou uma fatura em imagem/PDF'
+                "Não encontrei uma transação nessa mensagem. "
+                'Se quiser, pode registrar um gasto (ex: "Gastei R$50 em Uber"), '
+                "ver seus gastos do mês ou me enviar um extrato ou fatura em imagem/PDF."
             ),
         )
 
