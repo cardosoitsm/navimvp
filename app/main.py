@@ -723,11 +723,17 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         elif intent == "confirm_no":
             resposta = reject_pending_transaction(user_id)
         elif intent == "document_request":
-            start_document_onboarding(user_id)
-            resposta = (
-                "Claro. Posso te ajudar com esse documento.\n\n"
-                f"{document_upload_prompt(user_id)}"
-            )
+            if onboarding_state == ONBOARDING_COMPLETE:
+                resposta = (
+                    "Claro. Pode me mandar agora um extrato ou fatura pelo WhatsApp.\n\n"
+                    "Pode ser imagem ou PDF — assim que receber, já começo a analisar."
+                )
+            else:
+                start_document_onboarding(user_id)
+                resposta = (
+                    "Claro. Posso te ajudar com esse documento.\n\n"
+                    f"{document_upload_prompt(user_id)}"
+                )
         elif intent == "invoice_status":
             resposta = build_invoice_status_message(user_id, mensagem)
         elif intent == "financial_health":

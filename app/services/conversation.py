@@ -36,13 +36,27 @@ QUERY_BUDGET_PATTERNS = (
 QUERY_INVOICE_PATTERNS = (
     "qual o valor da minha fatura",
     "qual o valor da fatura",
+    "valor atual da fatura",
+    "valor da fatura",
     "quanto esta a fatura",
     "quanto está a fatura",
-    "valor da fatura",
+    "quanto é a fatura",
+    "quanto e a fatura",
+    "qual e a fatura",
+    "qual é a fatura",
     "minha fatura do",
+    "minha fatura esta",
+    "minha fatura está",
+    "fatura do meu",
+    "fatura atual do",
     "fatura do santander",
     "fatura do bradesco",
     "fatura do nubank",
+    "fatura do itau",
+    "fatura do inter",
+    "consultar fatura",
+    "ver fatura",
+    "checar fatura",
 )
 
 QUERY_FINANCIAL_HEALTH_PATTERNS = (
