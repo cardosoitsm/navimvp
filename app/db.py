@@ -204,6 +204,18 @@ SCHEMA_STATEMENTS = (
     )
     """,
     """
+    ALTER TABLE perfil_financeiro
+    ADD COLUMN IF NOT EXISTS limite_conta NUMERIC(12, 2) NULL
+    """,
+    """
+    ALTER TABLE perfil_financeiro
+    ADD COLUMN IF NOT EXISTS provisao_encargos NUMERIC(12, 2) NULL
+    """,
+    """
+    ALTER TABLE perfil_financeiro
+    ADD COLUMN IF NOT EXISTS data_debito_encargos DATE NULL
+    """,
+    """
     INSERT INTO categorias (nome, subcategorias) VALUES
         ('alimentacao',  'supermercado, restaurante, delivery, padaria, lanche, hortifruti'),
         ('transporte',   'combustivel, uber, taxi, estacionamento, onibus, metro, pedagio'),
