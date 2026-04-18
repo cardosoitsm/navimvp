@@ -216,6 +216,10 @@ SCHEMA_STATEMENTS = (
     ADD COLUMN IF NOT EXISTS data_debito_encargos DATE NULL
     """,
     """
+    UPDATE categorias SET nome = INITCAP(nome)
+    WHERE nome ~ '^[a-z]'
+    """,
+    """
     INSERT INTO categorias (nome, subcategorias) VALUES
         ('Alimentacao',  'supermercado, restaurante, delivery, padaria, lanche, hortifruti'),
         ('Transporte',   'combustivel, uber, taxi, estacionamento, onibus, metro, pedagio'),
@@ -228,10 +232,6 @@ SCHEMA_STATEMENTS = (
         ('Vestuario',    'roupas, calcados, acessorios'),
         ('Outros',       'gorjeta, doacao, presente, diversos')
     ON CONFLICT (nome) DO NOTHING
-    """,
-    """
-    UPDATE categorias SET nome = INITCAP(nome)
-    WHERE nome ~ '^[a-z]'
     """,
 )
 
