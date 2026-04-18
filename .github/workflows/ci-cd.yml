@@ -38,6 +38,7 @@ jobs:
       AUTH_TOKEN: ${{ secrets.AUTH_TOKEN }}
       TWILIO_NUMBER: ${{ secrets.TWILIO_NUMBER }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       SECRET_KEY: ${{ secrets.SECRET_KEY }}
       ALGORITHM: HS256
       DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
@@ -66,7 +67,7 @@ jobs:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: ACR_REGISTRY,ACCOUNT_SID,AUTH_TOKEN,TWILIO_NUMBER,OPENAI_API_KEY,SECRET_KEY,ALGORITHM,DATABASE_PASSWORD
+          envs: ACR_REGISTRY,ACCOUNT_SID,AUTH_TOKEN,TWILIO_NUMBER,OPENAI_API_KEY,GEMINI_API_KEY,SECRET_KEY,ALGORITHM,DATABASE_PASSWORD
           script: |
             set -e
 
@@ -80,6 +81,7 @@ jobs:
               "AUTH_TOKEN=${AUTH_TOKEN}" \
               "TWILIO_NUMBER=${TWILIO_NUMBER}" \
               "OPENAI_API_KEY=${OPENAI_API_KEY}" \
+              "GEMINI_API_KEY=${GEMINI_API_KEY}" \
               "SECRET_KEY=${SECRET_KEY}" \
               "ALGORITHM=${ALGORITHM}" \
               "DATABASE_PASSWORD=${DATABASE_PASSWORD}" > .env
