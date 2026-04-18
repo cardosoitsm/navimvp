@@ -394,14 +394,84 @@ def _score_page_financial_density(text: str) -> int:
     )
 
 
-def _extract_pdf_text(media_bytes: bytes) -> str:
+def _extract_pdfplumber_page(page: Any) -> str:
+    """
+    Extract text from a pdfplumber page preserving table row structure.
+
+    Tries line-based then text-based table detection so that multi-column
+    transaction tables (Date | Description | Debit | Credit | Balance) are
+    returned as pipe-separated rows instead of spatially-scrambled text.
+    Falls back to plain extract_text() when no usable table is detected.
+    """
+    for table_settings in (
+        {"vertical_strategy": "lines", "horizontal_strategy": "lines"},
+        {"vertical_strategy": "text", "horizontal_strategy": "text"},
+    ):
+        try:
+            tables = page.extract_tables(table_settings)
+        except Exception:
+            tables = []
+        if not tables:
+            continue
+        rows: list[str] = []
+        for table in tables:
+            for row in table:
+                if not row:
+                    continue
+                cells = [str(cell or "").strip().replace("\n", " ") for cell in row]
+                if sum(1 for c in cells if c) >= 2:
+                    rows.append(" | ".join(cells))
+        if len(rows) >= 2:
+            return "\n".join(rows)
+
+    text = page.extract_text() or ""
+    return re.sub(r"\s+\n", "\n", text).strip()
+
+
+def _get_pdf_pages_text(media_bytes: bytes) -> tuple[list[tuple[int, str]], int]:
+    """
+    Extract text from every page, returning ([(page_index, text), ...], total_pages).
+
+    Prefers pdfplumber for its superior table-aware extraction; falls back to
+    pypdf when pdfplumber is not installed.
+    """
+    try:
+        import pdfplumber  # noqa: PLC0415
+
+        indexed: list[tuple[int, str]] = []
+        with pdfplumber.open(BytesIO(media_bytes)) as pdf:
+            total_pages = len(pdf.pages)
+            for i, page in enumerate(pdf.pages):
+                text = _extract_pdfplumber_page(page)
+                if text:
+                    indexed.append((i, text))
+        logger.debug(
+            "pdf_pages_extracted total=%d extracted=%d method=pdfplumber",
+            total_pages,
+            len(indexed),
+        )
+        return indexed, total_pages
+    except ImportError:
+        pass
+
     reader = PdfReader(BytesIO(media_bytes))
-    pages: list[str] = []
-    for page in reader.pages:
-        text = page.extract_text() or ""
-        text = re.sub(r"\s+\n", "\n", text)
-        pages.append(text.strip())
-    return "\n\n".join(part for part in pages if part).strip()
+    total_pages = len(reader.pages)
+    indexed = []
+    for i, page in enumerate(reader.pages):
+        text = re.sub(r"\s+\n", "\n", page.extract_text() or "").strip()
+        if text:
+            indexed.append((i, text))
+    logger.debug(
+        "pdf_pages_extracted total=%d extracted=%d method=pypdf",
+        total_pages,
+        len(indexed),
+    )
+    return indexed, total_pages
+
+
+def _extract_pdf_text(media_bytes: bytes) -> str:
+    indexed, _ = _get_pdf_pages_text(media_bytes)
+    return "\n\n".join(text for _, text in indexed)
 
 
 def _get_pdf_text_for_prompt(media_bytes: bytes) -> tuple[str, int, int]:
@@ -413,15 +483,7 @@ def _get_pdf_text_for_prompt(media_bytes: bytes) -> tuple[str, int, int]:
       - first page (header, account info) and last page (totals/summary) are always included;
       - remaining budget is filled with middle pages ranked by financial data density.
     """
-    reader = PdfReader(BytesIO(media_bytes))
-    total_pages = len(reader.pages)
-
-    indexed: list[tuple[int, str]] = []
-    for i, page in enumerate(reader.pages):
-        text = page.extract_text() or ""
-        text = re.sub(r"\s+\n", "\n", text).strip()
-        if text:
-            indexed.append((i, text))
+    indexed, total_pages = _get_pdf_pages_text(media_bytes)
 
     if not indexed:
         return "", 0, total_pages
