@@ -394,6 +394,68 @@ def _score_page_financial_density(text: str) -> int:
     )
 
 
+def _count_raw_transaction_candidates(text: str) -> int:
+    """Count date-like patterns (dd/mm/yy or dd/mm/yyyy) as a proxy for transaction line count."""
+    return len(re.findall(r'\b\d{2}/\d{2}/\d{2,4}\b', text))
+
+
+def _anonymize_document_text(text: str) -> str:
+    """Mask PII before sending text to GPT: CPF, card number, agency/account, holder name."""
+    # CPF: 000.000.000-00
+    text = re.sub(r'\b\d{3}\.\d{3}\.\d{3}-\d{2}\b', '[CPF]', text)
+
+    # Full card number (16 digits in 4 groups)
+    text = re.sub(r'\b\d{4}[\s\-]\d{4}[\s\-]\d{4}[\s\-]\d{4}\b', '[CARTAO]', text)
+    # Masked card: xxxx-xxxx-xxxx-1234 style
+    text = re.sub(r'(?:[xX*]{4}[\s\-]){3}\d{4}', '[CARTAO]', text)
+
+    # Agency: "Agência 0001-3", "Ag: 0001", "AG 0001"
+    text = re.sub(
+        r'(?:Ag[eê]ncia|Agencia|Ag\.?)\s*[:.]?\s*\d{3,6}(?:[-/]\d{1,2})?',
+        '[AGENCIA/CONTA]',
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Account: "Conta Corrente: 12345-6", "CC: 12345-6", "C/C 123456"
+    text = re.sub(
+        r'(?:Conta\s*(?:Corrente)?|CC\.?|C/?C\.?)\s*[:.]?\s*\d{4,12}(?:[-/]\d{1,2})?',
+        '[AGENCIA/CONTA]',
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # Holder name: all-caps line (2+ words) within the first 10 lines of the document
+    lines = text.split('\n')
+    for i, line in enumerate(lines[:10]):
+        stripped = line.strip()
+        if (
+            stripped
+            and stripped == stripped.upper()
+            and len(stripped.split()) >= 2
+            and len(stripped) >= 6
+            and not re.search(r'\d', stripped)
+        ):
+            lines[i] = '[TITULAR]'
+    return '\n'.join(lines)
+
+
+def _ocr_image_bytes(image_bytes: bytes) -> str:
+    """Extract text from image bytes using pytesseract (local OCR — no data sent externally)."""
+    try:
+        import pytesseract  # noqa: PLC0415
+        from PIL import Image  # noqa: PLC0415
+
+        image = Image.open(BytesIO(image_bytes))
+        text = pytesseract.image_to_string(image, lang="por+eng")
+        return re.sub(r'\s+\n', '\n', text).strip()
+    except ImportError:
+        logger.warning("ocr_unavailable pytesseract or Pillow not installed")
+        return ""
+    except Exception as exc:
+        logger.warning("ocr_failed: %s", exc)
+        return ""
+
+
 def _extract_pdfplumber_page(page: Any) -> str:
     """
     Extract text from a pdfplumber page preserving table row structure.
@@ -1087,23 +1149,41 @@ def _extract_document_analysis(
     settings = get_settings()
     if media_content_type not in SUPPORTED_MEDIA_TYPES:
         return None
+    if not settings.openai_api_key:
+        return None
 
     income_instructions = _income_detection_instructions(hinted_type)
     system_content = _build_document_analysis_system_prompt(income_instructions, hinted_type)
 
-    if not settings.openai_api_key:
-        return None
-
     if media_content_type == "application/pdf":
-        extracted_text, pages_included, total_pages = _get_pdf_text_for_prompt(media_bytes)
-        if not extracted_text:
-            return _extract_scanned_pdf_with_openai(message_text, media_bytes, hinted_type, system_content)
+        # ETAPA 1: Extract ALL pages locally — no page limit, fresh extraction every time
+        indexed, total_pages = _get_pdf_pages_text(media_bytes)
+        extracted_text = "\n\n".join(text for _, text in indexed)
+        pages_included = total_pages
 
-        page_note = (
-            f"Paginas incluidas: {pages_included} de {total_pages} (selecionadas por densidade financeira). "
-            if pages_included < total_pages
-            else f"Paginas incluidas: {pages_included} de {total_pages}. "
-        )
+        if not extracted_text:
+            # Scanned PDF: render with pymupdf then OCR each page locally
+            page_images = _render_pdf_pages_as_images(media_bytes)
+            total_pages = len(page_images)
+            pages_included = total_pages
+            ocr_parts: list[str] = []
+            for img_bytes in page_images:
+                ocr_text = _ocr_image_bytes(img_bytes)
+                if ocr_text:
+                    ocr_parts.append(ocr_text)
+            extracted_text = "\n\n".join(ocr_parts)
+
+        if not extracted_text:
+            logger.warning("doc_no_text_extracted media_type=%s hinted_type=%s", media_content_type, hinted_type)
+            return None
+
+        raw_count = _count_raw_transaction_candidates(extracted_text)
+        logger.info("doc_extraction_local pages=%d raw_candidates=%d hinted_type=%s", pages_included, raw_count, hinted_type)
+
+        # ETAPA 2: Anonymize before sending to GPT
+        anonymized_text = _anonymize_document_text(extracted_text)
+
+        # ETAPA 3: GPT classifies entries only — never receives raw PDF or image
         client = OpenAI(api_key=settings.openai_api_key)
         response = client.chat.completions.create(
             model="gpt-4.1-mini",
@@ -1114,38 +1194,50 @@ def _extract_document_analysis(
                     "content": (
                         f"Mensagem do usuario: {message_text or 'sem legenda'}.\n"
                         f"Tipo sugerido inicialmente: {hinted_type}.\n"
-                        f"{page_note}"
-                        "Texto extraido do PDF abaixo. Reconstrua as linhas e preencha statement_rows linha a linha sem omitir nenhuma entrada.\n\n"
-                        f"{extracted_text}"
+                        f"Paginas incluidas: {pages_included} de {total_pages}. "
+                        "Texto extraido localmente e anonimizado. "
+                        "Classifique TODOS os lancamentos presentes sem omitir nenhum, "
+                        "independente do valor ou tipo. Preencha statement_rows linha a linha.\n\n"
+                        f"{anonymized_text}"
                     ),
                 },
             ],
         )
     else:
-        client = OpenAI(api_key=settings.openai_api_key)
-        encoded_media = base64.b64encode(media_bytes).decode("utf-8")
-        data_url = f"data:{media_content_type};base64,{encoded_media}"
+        # Image: OCR locally first — never send original image to GPT
+        extracted_text = _ocr_image_bytes(media_bytes)
+        pages_included = 1
+        total_pages = 1
 
+        if not extracted_text:
+            logger.warning(
+                "doc_ocr_failed media_type=%s hinted_type=%s — image not sent to GPT per privacy policy",
+                media_content_type,
+                hinted_type,
+            )
+            return None
+
+        raw_count = _count_raw_transaction_candidates(extracted_text)
+        logger.info("doc_ocr_local raw_candidates=%d hinted_type=%s", raw_count, hinted_type)
+
+        # ETAPA 2: Anonymize
+        anonymized_text = _anonymize_document_text(extracted_text)
+
+        # ETAPA 3: GPT receives only anonymized text
+        client = OpenAI(api_key=settings.openai_api_key)
         response = client.chat.completions.create(
             model="gpt-4.1-mini",
             messages=[
                 {"role": "system", "content": system_content},
                 {
                     "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": (
-                                f"Mensagem do usuario: {message_text or 'sem legenda'}.\n"
-                                f"Tipo sugerido inicialmente: {hinted_type}.\n"
-                                "Extraia todas as linhas visiveis com boa confianca. Quando for extrato, preencha statement_rows linha a linha sem omitir entradas."
-                            ),
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": data_url},
-                        },
-                    ],
+                    "content": (
+                        f"Mensagem do usuario: {message_text or 'sem legenda'}.\n"
+                        f"Tipo sugerido inicialmente: {hinted_type}.\n"
+                        "Texto extraido via OCR local e anonimizado. "
+                        "Classifique TODOS os lancamentos presentes sem omitir nenhum.\n\n"
+                        f"{anonymized_text}"
+                    ),
                 },
             ],
         )
@@ -1153,13 +1245,25 @@ def _extract_document_analysis(
     content = response.choices[0].message.content or "{}"
     analysis = _parse_openai_json(content)
     analysis["document_type"] = analysis.get("document_type") or hinted_type
-    if media_content_type == "application/pdf":
-        analysis["_pages_included"] = pages_included
-        analysis["_total_pages"] = total_pages
+    analysis["_pages_included"] = pages_included
+    analysis["_total_pages"] = total_pages
+
     analysis["statement_rows"] = _normalize_statement_rows(analysis.get("statement_rows"))
     derived_credit_entries, derived_debit_entries = _derive_statement_entries(analysis["statement_rows"])
     analysis["credit_entries"] = derived_credit_entries or _normalize_statement_entries(analysis.get("credit_entries"))
     analysis["debit_entries"] = derived_debit_entries or _normalize_statement_entries(analysis.get("debit_entries"))
+
+    # ETAPA 5: Completeness verification
+    gpt_count = len(analysis["statement_rows"])
+    analysis["_raw_candidates"] = raw_count
+    if raw_count > 0 and gpt_count < raw_count:
+        logger.warning(
+            "doc_completeness_mismatch raw_candidates=%d gpt_classified=%d hinted_type=%s",
+            raw_count,
+            gpt_count,
+            hinted_type,
+        )
+
     return _normalize_income_signal(analysis, hinted_type)
 
 
@@ -1302,9 +1406,11 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
 
     lines: list[str] = []
     if document_type == "extrato":
-        lines.append("Recebi seu extrato e consegui identificar alguns sinais importantes.")
-        if statement_rows:
-            lines.append(f"- linhas financeiras identificadas: {len(statement_rows)}")
+        total_lancamentos = len(statement_rows) or (len(credit_entries) + len(debit_entries))
+        if total_lancamentos > 0:
+            lines.append(f"Recebi seu extrato e encontrei {total_lancamentos} lançamentos.")
+        else:
+            lines.append("Recebi seu extrato e consegui identificar alguns sinais importantes.")
         if current_balance is not None:
             lines.append(f"- saldo estimado: R${current_balance:.2f}")
         if detected_income is not None:
