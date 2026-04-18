@@ -99,13 +99,13 @@ VARIABLE_COST_KEYWORDS = (
 )
 
 COST_CATEGORY_KEYWORDS = {
-    "moradia": ("aluguel", "condominio", "condomínio", "agua", "água", "gas", "gás", "energia", "luz"),
-    "saude": ("farmacia", "farmácia", "seguro", "plano", "consulta", "medico", "médico"),
-    "alimentacao": ("mercado", "supermercado", "ifood", "restaurante", "padaria", "cantina"),
-    "transporte": ("uber", "combustivel", "combustível", "posto", "99", "pedagio", "pedágio"),
-    "comunicacao": ("telefone", "vivo", "claro", "tim", "internet"),
-    "financeiro": ("boleto", "juros", "iof", "tarifa", "financiamento", "parcela"),
-    "lazer": ("lazer", "cinema", "show", "streaming", "loterias"),
+    "Moradia": ("aluguel", "condominio", "condomínio", "agua", "água", "gas", "gás", "energia", "luz"),
+    "Saude": ("farmacia", "farmácia", "seguro", "plano", "consulta", "medico", "médico"),
+    "Alimentacao": ("mercado", "supermercado", "ifood", "restaurante", "padaria", "cantina"),
+    "Transporte": ("uber", "combustivel", "combustível", "posto", "99", "pedagio", "pedágio"),
+    "Comunicacao": ("telefone", "vivo", "claro", "tim", "internet"),
+    "Financeiro": ("boleto", "juros", "iof", "tarifa", "financiamento", "parcela"),
+    "Lazer": ("lazer", "cinema", "show", "streaming", "loterias"),
 }
 
 GENERIC_COST_TOKENS = {
@@ -839,7 +839,7 @@ def infer_cost_candidates(user_id: int) -> tuple[list[dict[str, float | str]], l
             "descricao": description,
             "valor": amount,
             "tipo_custo": cost_type,
-            "categoria": _classify_cost_category(description) or "outros",
+            "categoria": _classify_cost_category(description) or "Outros",
         }
         if cost_type == "fixo":
             fixed_costs.append(payload)
@@ -1414,7 +1414,7 @@ def infer_invoice_cost_candidates(user_id: int) -> tuple[list[dict[str, float | 
             "descricao": description,
             "valor": amount,
             "tipo_custo": cost_type,
-            "categoria": _classify_cost_category(description) or "outros",
+            "categoria": _classify_cost_category(description) or "Outros",
         }
         if cost_type == "fixo":
             fixed_costs.append(payload)

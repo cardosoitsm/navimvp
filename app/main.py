@@ -781,9 +781,9 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             else:
                 resposta = build_all_budgets_status_message(user_id)
         elif "quanto gastei" in msg_lower and "transporte" in msg_lower:
-            resposta = resumo_categoria(user_id, "transporte")
+            resposta = resumo_categoria(user_id, "Transporte")
         elif "quanto gastei" in msg_lower and "alimentacao" in msg_lower:
-            resposta = resumo_categoria(user_id, "alimentacao")
+            resposta = resumo_categoria(user_id, "Alimentacao")
         elif "quanto gastei" in msg_lower:
             resposta = resumo_mes(user_id)
         elif not mensagem:

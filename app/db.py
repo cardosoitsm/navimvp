@@ -217,17 +217,21 @@ SCHEMA_STATEMENTS = (
     """,
     """
     INSERT INTO categorias (nome, subcategorias) VALUES
-        ('alimentacao',  'supermercado, restaurante, delivery, padaria, lanche, hortifruti'),
-        ('transporte',   'combustivel, uber, taxi, estacionamento, onibus, metro, pedagio'),
-        ('saude',        'farmacia, consulta, exame, plano_saude, dentista, academia'),
-        ('moradia',      'aluguel, condominio, energia, agua, gas, internet, manutencao'),
-        ('educacao',     'mensalidade, material, curso, livros, escola'),
-        ('lazer',        'cinema, streaming, viagem, hobby, esporte, assinatura'),
-        ('comunicacao',  'telefone, celular, tv_a_cabo, plano_dados'),
-        ('financeiro',   'parcela, emprestimo, financiamento, seguro, taxa_bancaria, cartao'),
-        ('vestuario',    'roupas, calcados, acessorios'),
-        ('outros',       'gorjeta, doacao, presente, diversos')
+        ('Alimentacao',  'supermercado, restaurante, delivery, padaria, lanche, hortifruti'),
+        ('Transporte',   'combustivel, uber, taxi, estacionamento, onibus, metro, pedagio'),
+        ('Saude',        'farmacia, consulta, exame, plano_saude, dentista, academia'),
+        ('Moradia',      'aluguel, condominio, energia, agua, gas, internet, manutencao'),
+        ('Educacao',     'mensalidade, material, curso, livros, escola'),
+        ('Lazer',        'cinema, streaming, viagem, hobby, esporte, assinatura'),
+        ('Comunicacao',  'telefone, celular, tv_a_cabo, plano_dados'),
+        ('Financeiro',   'parcela, emprestimo, financiamento, seguro, taxa_bancaria, cartao'),
+        ('Vestuario',    'roupas, calcados, acessorios'),
+        ('Outros',       'gorjeta, doacao, presente, diversos')
     ON CONFLICT (nome) DO NOTHING
+    """,
+    """
+    UPDATE categorias SET nome = INITCAP(nome)
+    WHERE nome ~ '^[a-z]'
     """,
 )
 

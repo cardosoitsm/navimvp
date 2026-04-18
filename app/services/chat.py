@@ -17,10 +17,10 @@ from app.services.summary import gerar_insight
 logger = get_logger("navi.chat")
 
 REGRAS_CATEGORIAS = {
-    "alimentacao": ["ifood", "restaurante", "lanche", "pizza", "hamburguer"],
-    "transporte": ["uber", "99", "taxi", "gasolina", "combustivel"],
-    "moradia": ["aluguel", "condominio", "luz", "agua"],
-    "lazer": ["cinema", "netflix", "spotify", "bar"],
+    "Alimentacao": ["ifood", "restaurante", "lanche", "pizza", "hamburguer"],
+    "Transporte": ["uber", "99", "taxi", "gasolina", "combustivel"],
+    "Moradia": ["aluguel", "condominio", "luz", "agua"],
+    "Lazer": ["cinema", "netflix", "spotify", "bar"],
 }
 
 
