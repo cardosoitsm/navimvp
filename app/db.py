@@ -195,6 +195,28 @@ SCHEMA_STATEMENTS = (
     ALTER TABLE usuarios
     ADD COLUMN IF NOT EXISTS nome VARCHAR(255) NULL
     """,
+    """
+    CREATE TABLE IF NOT EXISTS categorias (
+        id BIGSERIAL PRIMARY KEY,
+        nome VARCHAR(100) NOT NULL UNIQUE,
+        subcategorias TEXT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    """
+    INSERT INTO categorias (nome, subcategorias) VALUES
+        ('alimentacao',  'supermercado, restaurante, delivery, padaria, lanche, hortifruti'),
+        ('transporte',   'combustivel, uber, taxi, estacionamento, onibus, metro, pedagio'),
+        ('saude',        'farmacia, consulta, exame, plano_saude, dentista, academia'),
+        ('moradia',      'aluguel, condominio, energia, agua, gas, internet, manutencao'),
+        ('educacao',     'mensalidade, material, curso, livros, escola'),
+        ('lazer',        'cinema, streaming, viagem, hobby, esporte, assinatura'),
+        ('comunicacao',  'telefone, celular, tv_a_cabo, plano_dados'),
+        ('financeiro',   'parcela, emprestimo, financiamento, seguro, taxa_bancaria, cartao'),
+        ('vestuario',    'roupas, calcados, acessorios'),
+        ('outros',       'gorjeta, doacao, presente, diversos')
+    ON CONFLICT (nome) DO NOTHING
+    """,
 )
 
 

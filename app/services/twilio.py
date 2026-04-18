@@ -57,8 +57,13 @@ def _split_message(text: str, max_len: int = _WHATSAPP_MAX_CHARS) -> list[str]:
     return parts or [text[:max_len]]
 
 
-def build_twiml(message: str) -> str:
-    chunks = _split_message(message)
+def build_twiml(message: str | list[str]) -> str:
+    if isinstance(message, list):
+        chunks: list[str] = []
+        for msg in message:
+            chunks.extend(_split_message(msg))
+    else:
+        chunks = _split_message(message)
     msg_tags = "".join(
         f"<Message>{c.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}</Message>"
         for c in chunks

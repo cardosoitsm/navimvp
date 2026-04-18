@@ -1,7 +1,9 @@
 import base64
 from difflib import SequenceMatcher
 import json
+import os
 import re
+import tempfile
 import unicodedata
 from datetime import datetime
 from io import BytesIO
@@ -355,11 +357,116 @@ def _normalize_income_signal(analysis: dict[str, Any], hinted_type: str) -> dict
 def _extract_pdf_text(media_bytes: bytes) -> str:
     reader = PdfReader(BytesIO(media_bytes))
     pages: list[str] = []
-    for page in reader.pages[:10]:
+    for page in reader.pages:
         text = page.extract_text() or ""
         text = re.sub(r"\s+\n", "\n", text)
         pages.append(text.strip())
     return "\n\n".join(part for part in pages if part).strip()
+
+
+def _get_categories_for_prompt() -> str:
+    try:
+        from app.db import get_cursor
+        with get_cursor() as (_, cursor):
+            cursor.execute("SELECT nome, subcategorias FROM categorias ORDER BY nome")
+            rows = cursor.fetchall()
+        if not rows:
+            return ""
+        lines = ["Categorias disponíveis para classificação (use exatamente esses nomes):"]
+        for nome, subcats in rows:
+            if subcats:
+                lines.append(f"- {nome}: {subcats}")
+            else:
+                lines.append(f"- {nome}")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
+def _build_document_analysis_system_prompt(income_instructions: str, hinted_type: str) -> str:
+    categories_hint = _get_categories_for_prompt()
+    base = (
+        "Voce analisa documentos financeiros. "
+        "Retorne apenas JSON valido com este formato: "
+        '{"document_type":"extrato|fatura_cartao|desconhecido",'
+        '"summary":"texto curto",'
+        '"current_balance":numero ou null,'
+        '"invoice_total":numero ou null,'
+        '"minimum_payment":numero ou null,'
+        '"due_date":"YYYY-MM-DD" ou null,'
+        '"issuer":"texto" ou null,'
+        '"credit_limit":numero ou null,'
+        '"best_purchase_day":numero inteiro entre 1 e 31 ou null,'
+        '"detected_income":numero ou null,'
+        '"income_description":"texto" ou null,'
+        '"income_confidence":"high|medium|low" ou null,'
+        '"income_kind":"salary|transfer|investment|refund|unknown" ou null,'
+        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"texto","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low"}],'
+        '"credit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}],'
+        '"debit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}],'
+        '"estimated_fixed_expenses":numero ou null,'
+        '"top_items":["item 1","item 2"]}. '
+        "Para faturas de cartao: credit_limit e o limite total do cartao (campo 'limite', 'limite do cartao' ou similar). "
+        "best_purchase_day e o melhor dia para compras (campo 'melhor dia para compras', 'data de fechamento' menos alguns dias, ou similar). "
+        "Se nao estiver explicito, retorne null. "
+        f"{income_instructions}"
+    )
+    if categories_hint:
+        base += f"\n\n{categories_hint}"
+    return base
+
+
+def _extract_document_analysis_with_gemini(
+    message_text: str,
+    media_content_type: str,
+    media_bytes: bytes,
+    hinted_type: str,
+) -> dict[str, Any] | None:
+    settings = get_settings()
+    if not settings.gemini_api_key:
+        return None
+
+    try:
+        import google.generativeai as genai  # noqa: PLC0415
+
+        genai.configure(api_key=settings.gemini_api_key)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+
+        income_instructions = _income_detection_instructions(hinted_type)
+        system_content = _build_document_analysis_system_prompt(income_instructions, hinted_type)
+        user_text = (
+            f"Mensagem do usuario: {message_text or 'sem legenda'}.\n"
+            f"Tipo sugerido inicialmente: {hinted_type}.\n"
+            "Extraia todas as linhas visiveis do documento com alta precisao. "
+            "Quando for extrato, preencha statement_rows linha a linha sem omitir entradas."
+        )
+        full_prompt = f"{system_content}\n\n{user_text}"
+
+        if media_content_type == "application/pdf":
+            tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+            try:
+                with os.fdopen(tmp_fd, "wb") as tmp_file:
+                    tmp_file.write(media_bytes)
+                uploaded = genai.upload_file(tmp_path, mime_type="application/pdf")
+                response = model.generate_content([full_prompt, uploaded])
+                genai.delete_file(uploaded.name)
+            finally:
+                os.unlink(tmp_path)
+        else:
+            encoded = base64.b64encode(media_bytes).decode("utf-8")
+            image_part = {"mime_type": media_content_type, "data": encoded}
+            response = model.generate_content([full_prompt, image_part])
+
+        content = response.text or "{}"
+        analysis = _parse_openai_json(content)
+        analysis["document_type"] = analysis.get("document_type") or hinted_type
+        analysis["statement_rows"] = _normalize_statement_rows(analysis.get("statement_rows"))
+        derived_credit, derived_debit = _derive_statement_entries(analysis["statement_rows"])
+        analysis["credit_entries"] = derived_credit or _normalize_statement_entries(analysis.get("credit_entries"))
+        analysis["debit_entries"] = derived_debit or _normalize_statement_entries(analysis.get("debit_entries"))
+        return _normalize_income_signal(analysis, hinted_type)
+    except Exception:
+        return None
 
 
 def has_document_type(user_id: int, tipo_documento: str) -> bool:
@@ -793,42 +900,23 @@ def _extract_document_analysis(
     hinted_type: str,
 ) -> dict[str, Any] | None:
     settings = get_settings()
-    if not settings.openai_api_key or media_content_type not in SUPPORTED_MEDIA_TYPES:
+    if media_content_type not in SUPPORTED_MEDIA_TYPES:
         return None
 
-    client = OpenAI(api_key=settings.openai_api_key)
     income_instructions = _income_detection_instructions(hinted_type)
-    system_content = (
-        "Voce analisa documentos financeiros. "
-        "Retorne apenas JSON valido com este formato: "
-        '{"document_type":"extrato|fatura_cartao|desconhecido",'
-        '"summary":"texto curto",'
-        '"current_balance":numero ou null,'
-        '"invoice_total":numero ou null,'
-        '"minimum_payment":numero ou null,'
-        '"due_date":"YYYY-MM-DD" ou null,'
-        '"issuer":"texto" ou null,'
-        '"credit_limit":numero ou null,'
-        '"best_purchase_day":numero inteiro entre 1 e 31 ou null,'
-        '"detected_income":numero ou null,'
-        '"income_description":"texto" ou null,'
-        '"income_confidence":"high|medium|low" ou null,'
-        '"income_kind":"salary|transfer|investment|refund|unknown" ou null,'
-        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"texto","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low"}],'
-        '"credit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}],'
-        '"debit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}],'
-        '"estimated_fixed_expenses":numero ou null,'
-        '"top_items":["item 1","item 2"]}. '
-        "Para faturas de cartao: credit_limit e o limite total do cartao (campo 'limite', 'limite do cartao' ou similar). "
-        "best_purchase_day e o melhor dia para compras (campo 'melhor dia para compras', 'data de fechamento' menos alguns dias, ou similar). "
-        "Se nao estiver explicito, retorne null."
-    )
+    system_content = _build_document_analysis_system_prompt(income_instructions, hinted_type)
 
     if media_content_type == "application/pdf":
         extracted_text = _extract_pdf_text(media_bytes)
+        if not extracted_text and settings.gemini_api_key:
+            return _extract_document_analysis_with_gemini(message_text, media_content_type, media_bytes, hinted_type)
         if not extracted_text:
             return None
 
+        if not settings.openai_api_key:
+            return None
+
+        client = OpenAI(api_key=settings.openai_api_key)
         response = client.chat.completions.create(
             model="gpt-4.1-mini",
             messages=[
@@ -838,14 +926,17 @@ def _extract_document_analysis(
                     "content": (
                         f"Mensagem do usuario: {message_text or 'sem legenda'}.\n"
                         f"Tipo sugerido inicialmente: {hinted_type}.\n"
-                        f"{income_instructions}\n"
-                        "O texto abaixo foi extraido de um PDF. Reconstrua as linhas relevantes do documento e preencha statement_rows quando for extrato.\n\n"
+                        "O texto abaixo foi extraido de um PDF. Reconstrua as linhas relevantes do documento e preencha statement_rows quando for extrato sem omitir nenhuma linha.\n\n"
                         f"{extracted_text[:18000]}"
                     ),
                 },
             ],
         )
     else:
+        if not settings.openai_api_key:
+            return _extract_document_analysis_with_gemini(message_text, media_content_type, media_bytes, hinted_type)
+
+        client = OpenAI(api_key=settings.openai_api_key)
         encoded_media = base64.b64encode(media_bytes).decode("utf-8")
         data_url = f"data:{media_content_type};base64,{encoded_media}"
 
@@ -861,8 +952,7 @@ def _extract_document_analysis(
                             "text": (
                                 f"Mensagem do usuario: {message_text or 'sem legenda'}.\n"
                                 f"Tipo sugerido inicialmente: {hinted_type}.\n"
-                                f"{income_instructions}\n"
-                                "Extraia apenas o que estiver visivel com boa confianca. Quando for extrato, preencha statement_rows linha a linha."
+                                "Extraia todas as linhas visiveis com boa confianca. Quando for extrato, preencha statement_rows linha a linha sem omitir entradas."
                             ),
                         },
                         {
@@ -1358,3 +1448,70 @@ def build_invoice_status_message(user_id: int, message_text: str) -> str:
     vencimento = row[1]
     pagamento_minimo = float(row[2]) if row[2] is not None else None
     return _build_invoice_status_response_v2(card_name, valor_total, vencimento, pagamento_minimo)
+
+
+def build_onboarding_completion_message(user_id: int) -> tuple[str, str]:
+    """Returns (summary_message, ready_message) to be sent as two separate messages."""
+    from app.services.onboarding import get_user_name  # noqa: PLC0415
+
+    nome = get_user_name(user_id)
+
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            "SELECT saldo_atual_estimado FROM perfil_financeiro WHERE user_id = %s",
+            (user_id,),
+        )
+        row = cursor.fetchone()
+    saldo = float(row[0]) if row and row[0] is not None else None
+
+    cards = get_cards(user_id)
+    invoices: list[dict[str, Any]] = []
+    if cards:
+        with get_cursor() as (_, cursor):
+            for card in cards:
+                cursor.execute(
+                    """
+                    SELECT valor_total, vencimento
+                    FROM faturas_cartao
+                    WHERE user_id = %s AND cartao_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (user_id, card["id"]),
+                )
+                inv = cursor.fetchone()
+                if inv:
+                    invoices.append(
+                        {
+                            "nome": str(card["nome_cartao"]),
+                            "valor": float(inv[0]),
+                            "vencimento": inv[1],
+                        }
+                    )
+
+    linhas: list[str] = ["Aqui está um resumo do que organizei para você:"]
+    if saldo is not None:
+        linhas.append(f"\nSaldo atual da conta: {format_brl(saldo)}")
+    if invoices:
+        linhas.append("\nFaturas dos cartões:")
+        for inv in invoices:
+            venc = format_ptbr_date(inv["vencimento"]) or ""
+            linha = f"- {inv['nome']}: {format_brl(inv['valor'])}"
+            if venc:
+                linha += f" (venc. {venc})"
+            linhas.append(linha)
+
+    summary_message = "\n".join(linhas)
+
+    saudacao = f"Pronto, {nome}!" if nome else "Pronto!"
+    ready_message = (
+        f"{saudacao} Sua base financeira está organizada e agora posso te acompanhar de um jeito muito mais completo.\n\n"
+        "Pode interagir comigo pelo WhatsApp usando:\n"
+        "- Texto: registre gastos, receitas ou perguntas\n"
+        "- Voz: mande um áudio com o que quiser registrar\n"
+        "- Imagem: foto de comprovante, extrato ou fatura\n"
+        "- Arquivo PDF: extrato bancário ou fatura do cartão\n\n"
+        "Sempre que precisar, pode me chamar por aqui."
+    )
+
+    return summary_message, ready_message

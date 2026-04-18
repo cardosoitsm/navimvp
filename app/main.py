@@ -30,6 +30,7 @@ from app.services.conversation import (
 )
 from app.services.documents import (
     build_invoice_status_message,
+    build_onboarding_completion_message,
     complete_document_onboarding,
     document_invite_prompt,
     document_invite_retry_prompt,
@@ -106,6 +107,14 @@ from app.services.onboarding import (
     should_skip_card_setup,
 )
 from app.services.chat import process_user_message
+from app.services.help import (
+    build_help_menu,
+    clear_help_context,
+    get_help_content,
+    is_help_menu_active,
+    parse_help_selection,
+    save_help_context,
+)
 from app.services.summary import listar_ultimas_transacoes, resumo_categoria, resumo_mes
 from app.services.twilio import build_twiml
 from app.services.users import (
@@ -215,6 +224,10 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
     intent = detect_intent(mensagem)
     if intent == "transaction" and is_invoice_followup_message(user_id, mensagem):
         intent = "invoice_status"
+    if intent == "transaction" and not incoming_media and is_help_menu_active(user_id):
+        selection = parse_help_selection(mensagem)
+        if selection is not None:
+            intent = "help_selection"
     logger.info("webhook user_id=%s intent=%s media=%s", user_id, intent, bool(incoming_media))
     onboarding_state = get_onboarding_state(user_id)
     existing_card_names = get_card_names(user_id)
@@ -544,10 +557,9 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                     )
                 else:
                     complete_document_onboarding(user_id)
-                    resposta = (
-                        f"Perfeito. Já deixei a fatura do {current_card['nome_cartao']} salva por aqui.\n\n"
-                        "Com isso, terminei de organizar sua base inicial e agora já consigo te acompanhar de um jeito bem mais completo daqui para frente."
-                    )
+                    summary_msg, ready_msg = build_onboarding_completion_message(user_id)
+                    intro = f"Perfeito. Já deixei a fatura do {current_card['nome_cartao']} salva por aqui.\n\n{summary_msg}"
+                    return Response(content=build_twiml([intro, ready_msg]), media_type="application/xml")
                 return Response(content=build_twiml(resposta), media_type="application/xml")
 
             if should_skip_document_onboarding(mensagem):
@@ -688,6 +700,20 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             resposta = build_loan_evaluation_message(user_id, mensagem)
         elif intent == "financial_recommendations":
             resposta = build_recommendations_message(user_id)
+        elif intent == "help_request":
+            save_help_context(user_id)
+            resposta = build_help_menu()
+        elif intent == "help_selection":
+            selection = parse_help_selection(mensagem)
+            content = get_help_content(selection) if selection else None
+            if content:
+                clear_help_context(user_id)
+                resposta = content
+            else:
+                from app.services.help import HELP_TOPICS as _HELP_TOPICS  # noqa: PLC0415
+                resposta = (
+                    f"Não encontrei essa opção. Escolha um número entre 1 e {len(_HELP_TOPICS)} ou me diga o que precisa."
+                )
         elif intent == "greeting":
             _nome = get_user_name(user_id)
             _saudacao = f"Olá, {_nome}!" if _nome else "Olá!"
