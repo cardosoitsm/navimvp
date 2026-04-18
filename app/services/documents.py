@@ -170,7 +170,7 @@ def _normalize_statement_entries(entries: Any) -> list[dict[str, Any]]:
         return []
 
     normalized_entries: list[dict[str, Any]] = []
-    for entry in entries[:5]:
+    for entry in entries[:10]:
         if not isinstance(entry, dict):
             continue
         description = str(entry.get("description") or "").strip()
@@ -187,7 +187,7 @@ def _normalize_statement_rows(rows: Any) -> list[dict[str, Any]]:
         return []
 
     normalized_rows: list[dict[str, Any]] = []
-    for row in rows[:50]:
+    for row in rows[:200]:
         if not isinstance(row, dict):
             continue
 
@@ -352,6 +352,19 @@ def _normalize_income_signal(analysis: dict[str, Any], hinted_type: str) -> dict
     return analysis
 
 
+_MAX_PDF_PROMPT_CHARS = 60_000
+_MAX_SCANNED_PAGES_PER_CALL = 8
+
+
+def _score_page_financial_density(text: str) -> int:
+    """Score a page by how many financial data points it contains."""
+    return (
+        len(re.findall(r"\d{2}/\d{2}/\d{4}", text)) * 2
+        + len(re.findall(r"R\$\s*\d", text)) * 2
+        + len(re.findall(r"\d+[.,]\d{2}", text))
+    )
+
+
 def _extract_pdf_text(media_bytes: bytes) -> str:
     reader = PdfReader(BytesIO(media_bytes))
     pages: list[str] = []
@@ -360,6 +373,55 @@ def _extract_pdf_text(media_bytes: bytes) -> str:
         text = re.sub(r"\s+\n", "\n", text)
         pages.append(text.strip())
     return "\n\n".join(part for part in pages if part).strip()
+
+
+def _get_pdf_text_for_prompt(media_bytes: bytes) -> tuple[str, int, int]:
+    """
+    Returns (text_for_prompt, pages_included, total_pages).
+
+    When the full text fits within _MAX_PDF_PROMPT_CHARS all pages are returned.
+    For larger documents a smart selection is applied:
+      - first page (header, account info) and last page (totals/summary) are always included;
+      - remaining budget is filled with middle pages ranked by financial data density.
+    """
+    reader = PdfReader(BytesIO(media_bytes))
+    total_pages = len(reader.pages)
+
+    indexed: list[tuple[int, str]] = []
+    for i, page in enumerate(reader.pages):
+        text = page.extract_text() or ""
+        text = re.sub(r"\s+\n", "\n", text).strip()
+        if text:
+            indexed.append((i, text))
+
+    if not indexed:
+        return "", 0, total_pages
+
+    full_text = "\n\n".join(t for _, t in indexed)
+    if len(full_text) <= _MAX_PDF_PROMPT_CHARS:
+        return full_text, total_pages, total_pages
+
+    # Smart selection: anchor on first + last page, then fill by density
+    anchor_indices: set[int] = {indexed[0][0]}
+    selected: list[tuple[int, str]] = [indexed[0]]
+    if len(indexed) > 1:
+        anchor_indices.add(indexed[-1][0])
+        selected.append(indexed[-1])
+
+    middle = sorted(
+        [(i, t) for i, t in indexed if i not in anchor_indices],
+        key=lambda x: _score_page_financial_density(x[1]),
+        reverse=True,
+    )
+
+    char_budget = _MAX_PDF_PROMPT_CHARS - sum(len(t) + 2 for _, t in selected)
+    for i, text in middle:
+        if len(text) + 2 <= char_budget:
+            selected.append((i, text))
+            char_budget -= len(text) + 2
+
+    selected.sort(key=lambda x: x[0])
+    return "\n\n".join(t for _, t in selected), len(selected), total_pages
 
 
 def _get_categories_for_prompt() -> str:
@@ -414,20 +476,47 @@ def _build_document_analysis_system_prompt(income_instructions: str, hinted_type
     return base
 
 
-def _render_pdf_pages_as_images(media_bytes: bytes, max_pages: int = 10) -> list[bytes]:
-    """Renders PDF pages as PNG images using pymupdf (for scanned/image-based PDFs)."""
+def _render_pdf_pages_as_images(media_bytes: bytes) -> list[bytes]:
+    """Renders all PDF pages as PNG images using pymupdf (for scanned/image-based PDFs)."""
     try:
         import fitz  # noqa: PLC0415 — pymupdf
 
         doc = fitz.open(stream=media_bytes, filetype="pdf")
-        images: list[bytes] = []
-        for page_num in range(min(len(doc), max_pages)):
-            page = doc.load_page(page_num)
-            pix = page.get_pixmap(dpi=150)
-            images.append(pix.tobytes("png"))
-        return images
+        return [doc.load_page(i).get_pixmap(dpi=150).tobytes("png") for i in range(len(doc))]
     except Exception:
         return []
+
+
+def _call_openai_vision_with_pages(
+    client: "OpenAI",
+    system_content: str,
+    user_text: str,
+    page_images: list[bytes],
+) -> dict[str, Any]:
+    """Single GPT-4.1-mini vision call with one or more page images."""
+    image_content: list[dict[str, Any]] = [{"type": "text", "text": user_text}]
+    for img_bytes in page_images:
+        encoded = base64.b64encode(img_bytes).decode("utf-8")
+        image_content.append(
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded}"}}
+        )
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": image_content},
+        ],
+    )
+    return _parse_openai_json(response.choices[0].message.content or "{}")
+
+
+def _select_scanned_pages(page_images: list[bytes]) -> list[bytes]:
+    """
+    For PDFs with more pages than _MAX_SCANNED_PAGES_PER_CALL, select the most
+    representative subset: first half (header/transactions) + last pages (totals/summary).
+    """
+    half = _MAX_SCANNED_PAGES_PER_CALL // 2
+    return page_images[:half] + page_images[-half:]
 
 
 def _extract_scanned_pdf_with_openai(
@@ -436,47 +525,34 @@ def _extract_scanned_pdf_with_openai(
     hinted_type: str,
     system_content: str,
 ) -> dict[str, Any] | None:
-    """Sends rendered PDF pages as images to GPT-4.1-mini vision when pypdf extracts no text."""
+    """
+    Sends rendered PDF pages to GPT-4.1-mini vision when pypdf extracts no text.
+    Uses batched/selected pages for PDFs exceeding _MAX_SCANNED_PAGES_PER_CALL.
+    """
     settings = get_settings()
     if not settings.openai_api_key:
         return None
 
-    page_images = _render_pdf_pages_as_images(media_bytes)
-    if not page_images:
+    all_pages = _render_pdf_pages_as_images(media_bytes)
+    if not all_pages:
         return None
 
+    total_pages = len(all_pages)
+    selected_pages = all_pages if total_pages <= _MAX_SCANNED_PAGES_PER_CALL else _select_scanned_pages(all_pages)
+    pages_included = len(selected_pages)
+
     client = OpenAI(api_key=settings.openai_api_key)
-
-    image_content: list[dict[str, Any]] = [
-        {
-            "type": "text",
-            "text": (
-                f"Mensagem do usuario: {message_text or 'sem legenda'}.\n"
-                f"Tipo sugerido inicialmente: {hinted_type}.\n"
-                "As imagens abaixo sao paginas de um PDF escaneado. "
-                "Extraia todas as linhas visiveis com alta precisao e preencha statement_rows linha a linha sem omitir entradas."
-            ),
-        }
-    ]
-    for img_bytes in page_images:
-        encoded = base64.b64encode(img_bytes).decode("utf-8")
-        image_content.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:image/png;base64,{encoded}"},
-            }
-        )
-
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[
-            {"role": "system", "content": system_content},
-            {"role": "user", "content": image_content},
-        ],
+    user_text = (
+        f"Mensagem do usuario: {message_text or 'sem legenda'}.\n"
+        f"Tipo sugerido inicialmente: {hinted_type}.\n"
+        "As imagens abaixo sao paginas de um PDF escaneado. "
+        "Extraia todas as linhas visiveis com alta precisao e preencha statement_rows linha a linha sem omitir entradas."
     )
-    content = response.choices[0].message.content or "{}"
-    analysis = _parse_openai_json(content)
+
+    analysis = _call_openai_vision_with_pages(client, system_content, user_text, selected_pages)
     analysis["document_type"] = analysis.get("document_type") or hinted_type
+    analysis["_pages_included"] = pages_included
+    analysis["_total_pages"] = total_pages
     analysis["statement_rows"] = _normalize_statement_rows(analysis.get("statement_rows"))
     derived_credit, derived_debit = _derive_statement_entries(analysis["statement_rows"])
     analysis["credit_entries"] = derived_credit or _normalize_statement_entries(analysis.get("credit_entries"))
@@ -925,10 +1001,15 @@ def _extract_document_analysis(
         return None
 
     if media_content_type == "application/pdf":
-        extracted_text = _extract_pdf_text(media_bytes)
+        extracted_text, pages_included, total_pages = _get_pdf_text_for_prompt(media_bytes)
         if not extracted_text:
             return _extract_scanned_pdf_with_openai(message_text, media_bytes, hinted_type, system_content)
 
+        page_note = (
+            f"Paginas incluidas: {pages_included} de {total_pages} (selecionadas por densidade financeira). "
+            if pages_included < total_pages
+            else f"Paginas incluidas: {pages_included} de {total_pages}. "
+        )
         client = OpenAI(api_key=settings.openai_api_key)
         response = client.chat.completions.create(
             model="gpt-4.1-mini",
@@ -939,8 +1020,9 @@ def _extract_document_analysis(
                     "content": (
                         f"Mensagem do usuario: {message_text or 'sem legenda'}.\n"
                         f"Tipo sugerido inicialmente: {hinted_type}.\n"
-                        "O texto abaixo foi extraido de um PDF. Reconstrua as linhas relevantes do documento e preencha statement_rows quando for extrato sem omitir nenhuma linha.\n\n"
-                        f"{extracted_text[:18000]}"
+                        f"{page_note}"
+                        "Texto extraido do PDF abaixo. Reconstrua as linhas e preencha statement_rows linha a linha sem omitir nenhuma entrada.\n\n"
+                        f"{extracted_text}"
                     ),
                 },
             ],
@@ -977,6 +1059,9 @@ def _extract_document_analysis(
     content = response.choices[0].message.content or "{}"
     analysis = _parse_openai_json(content)
     analysis["document_type"] = analysis.get("document_type") or hinted_type
+    if media_content_type == "application/pdf":
+        analysis["_pages_included"] = pages_included
+        analysis["_total_pages"] = total_pages
     analysis["statement_rows"] = _normalize_statement_rows(analysis.get("statement_rows"))
     derived_credit_entries, derived_debit_entries = _derive_statement_entries(analysis["statement_rows"])
     analysis["credit_entries"] = derived_credit_entries or _normalize_statement_entries(analysis.get("credit_entries"))
@@ -1169,6 +1254,18 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
     if summary:
         lines.extend(["", summary])
 
+    pages_included = analysis.get("_pages_included")
+    total_pages = analysis.get("_total_pages")
+    if pages_included is not None and total_pages is not None and pages_included < total_pages:
+        lines.extend(
+            [
+                "",
+                f"Analisei {pages_included} das {total_pages} paginas do documento, "
+                "priorizando as secoes com mais dados financeiros. "
+                "Se quiser que eu veja o restante, pode me mandar o arquivo dividido em partes.",
+            ]
+        )
+
     lines.extend(
         [
             "",
@@ -1229,17 +1326,27 @@ def process_stored_document(
         logger.warning("doc_processing_no_analysis document_id=%d user_id=%d", document_id, user_id)
 
 
-def build_document_receipt_message(tipo_documento: str) -> str:
+def build_document_receipt_message(tipo_documento: str, partial: bool = False) -> str:
     if tipo_documento == "fatura_cartao":
-        detalhe = "Recebi sua fatura. Isso vai me ajudar a acompanhar melhor sua situação."
+        detalhe = "Recebi sua fatura e já deixei salva por aqui."
     elif tipo_documento == "extrato":
-        detalhe = "Recebi seu extrato. Isso me ajuda a entender melhor como está sua vida financeira."
+        detalhe = "Recebi seu extrato e já deixei salvo por aqui."
     else:
-        detalhe = "Recebi seu documento. Vou guardar esse material para te ajudar melhor daqui para frente."
+        detalhe = "Recebi seu documento e já deixei salvo por aqui."
+
+    if partial:
+        return (
+            f"{detalhe}\n\n"
+            "Consegui processar parte do conteúdo, mas o arquivo parece ser escaneado ou estar "
+            "em um formato que dificultou a leitura completa. "
+            "Se quiser, pode me mandar uma versão em texto ou dividida em partes menores — "
+            "assim consigo extrair todos os dados com mais precisão."
+        )
 
     return (
         f"{detalhe}\n\n"
-        "Por enquanto, eu já consigo guardar isso com segurança e seguir com o seu acompanhamento."
+        "Estou analisando o conteúdo em segundo plano e vou usar essas informações "
+        "para deixar o seu acompanhamento financeiro mais preciso."
     )
 
 
