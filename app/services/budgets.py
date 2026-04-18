@@ -11,15 +11,15 @@ BUDGET_EDIT_WORDS = {"alterar", "adicionar", "ajustar", "mudar", "editar", "revi
 BUDGET_CONTEXT_WORDS = {"budget", "orcamento", "limite", "limites", "categoria", "categorias"}
 
 CATEGORY_ALIASES = {
-    "farmacia": "farmacia",
-    "mercado": "mercado",
-    "supermercado": "mercado",
-    "alimentacao": "alimentacao",
-    "alimentacao ": "alimentacao",
-    "lazer": "lazer",
-    "transporte": "transporte",
-    "moradia": "moradia",
-    "saude": "saude",
+    "farmacia": "Farmacia",
+    "mercado": "Mercado",
+    "supermercado": "Mercado",
+    "alimentacao": "Alimentacao",
+    "alimentacao ": "Alimentacao",
+    "lazer": "Lazer",
+    "transporte": "Transporte",
+    "moradia": "Moradia",
+    "saude": "Saude",
 }
 
 ALERT_LEVELS = (
