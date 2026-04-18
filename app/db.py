@@ -233,6 +233,10 @@ SCHEMA_STATEMENTS = (
         ('Outros',       'gorjeta, doacao, presente, diversos')
     ON CONFLICT (nome) DO NOTHING
     """,
+    """
+    UPDATE categorias SET nome = INITCAP(nome)
+    WHERE nome ~ '^[a-z]'
+    """,
 )
 
 
