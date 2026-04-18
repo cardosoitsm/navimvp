@@ -1,9 +1,7 @@
 import base64
 from difflib import SequenceMatcher
 import json
-import os
 import re
-import tempfile
 import unicodedata
 from datetime import datetime
 from io import BytesIO
@@ -416,57 +414,74 @@ def _build_document_analysis_system_prompt(income_instructions: str, hinted_type
     return base
 
 
-def _extract_document_analysis_with_gemini(
+def _render_pdf_pages_as_images(media_bytes: bytes, max_pages: int = 10) -> list[bytes]:
+    """Renders PDF pages as PNG images using pymupdf (for scanned/image-based PDFs)."""
+    try:
+        import fitz  # noqa: PLC0415 — pymupdf
+
+        doc = fitz.open(stream=media_bytes, filetype="pdf")
+        images: list[bytes] = []
+        for page_num in range(min(len(doc), max_pages)):
+            page = doc.load_page(page_num)
+            pix = page.get_pixmap(dpi=150)
+            images.append(pix.tobytes("png"))
+        return images
+    except Exception:
+        return []
+
+
+def _extract_scanned_pdf_with_openai(
     message_text: str,
-    media_content_type: str,
     media_bytes: bytes,
     hinted_type: str,
+    system_content: str,
 ) -> dict[str, Any] | None:
+    """Sends rendered PDF pages as images to GPT-4.1-mini vision when pypdf extracts no text."""
     settings = get_settings()
-    if not settings.gemini_api_key:
+    if not settings.openai_api_key:
         return None
 
-    try:
-        import google.generativeai as genai  # noqa: PLC0415
+    page_images = _render_pdf_pages_as_images(media_bytes)
+    if not page_images:
+        return None
 
-        genai.configure(api_key=settings.gemini_api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+    client = OpenAI(api_key=settings.openai_api_key)
 
-        income_instructions = _income_detection_instructions(hinted_type)
-        system_content = _build_document_analysis_system_prompt(income_instructions, hinted_type)
-        user_text = (
-            f"Mensagem do usuario: {message_text or 'sem legenda'}.\n"
-            f"Tipo sugerido inicialmente: {hinted_type}.\n"
-            "Extraia todas as linhas visiveis do documento com alta precisao. "
-            "Quando for extrato, preencha statement_rows linha a linha sem omitir entradas."
+    image_content: list[dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": (
+                f"Mensagem do usuario: {message_text or 'sem legenda'}.\n"
+                f"Tipo sugerido inicialmente: {hinted_type}.\n"
+                "As imagens abaixo sao paginas de um PDF escaneado. "
+                "Extraia todas as linhas visiveis com alta precisao e preencha statement_rows linha a linha sem omitir entradas."
+            ),
+        }
+    ]
+    for img_bytes in page_images:
+        encoded = base64.b64encode(img_bytes).decode("utf-8")
+        image_content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{encoded}"},
+            }
         )
-        full_prompt = f"{system_content}\n\n{user_text}"
 
-        if media_content_type == "application/pdf":
-            tmp_fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
-            try:
-                with os.fdopen(tmp_fd, "wb") as tmp_file:
-                    tmp_file.write(media_bytes)
-                uploaded = genai.upload_file(tmp_path, mime_type="application/pdf")
-                response = model.generate_content([full_prompt, uploaded])
-                genai.delete_file(uploaded.name)
-            finally:
-                os.unlink(tmp_path)
-        else:
-            encoded = base64.b64encode(media_bytes).decode("utf-8")
-            image_part = {"mime_type": media_content_type, "data": encoded}
-            response = model.generate_content([full_prompt, image_part])
-
-        content = response.text or "{}"
-        analysis = _parse_openai_json(content)
-        analysis["document_type"] = analysis.get("document_type") or hinted_type
-        analysis["statement_rows"] = _normalize_statement_rows(analysis.get("statement_rows"))
-        derived_credit, derived_debit = _derive_statement_entries(analysis["statement_rows"])
-        analysis["credit_entries"] = derived_credit or _normalize_statement_entries(analysis.get("credit_entries"))
-        analysis["debit_entries"] = derived_debit or _normalize_statement_entries(analysis.get("debit_entries"))
-        return _normalize_income_signal(analysis, hinted_type)
-    except Exception:
-        return None
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": image_content},
+        ],
+    )
+    content = response.choices[0].message.content or "{}"
+    analysis = _parse_openai_json(content)
+    analysis["document_type"] = analysis.get("document_type") or hinted_type
+    analysis["statement_rows"] = _normalize_statement_rows(analysis.get("statement_rows"))
+    derived_credit, derived_debit = _derive_statement_entries(analysis["statement_rows"])
+    analysis["credit_entries"] = derived_credit or _normalize_statement_entries(analysis.get("credit_entries"))
+    analysis["debit_entries"] = derived_debit or _normalize_statement_entries(analysis.get("debit_entries"))
+    return _normalize_income_signal(analysis, hinted_type)
 
 
 def has_document_type(user_id: int, tipo_documento: str) -> bool:
@@ -906,15 +921,13 @@ def _extract_document_analysis(
     income_instructions = _income_detection_instructions(hinted_type)
     system_content = _build_document_analysis_system_prompt(income_instructions, hinted_type)
 
+    if not settings.openai_api_key:
+        return None
+
     if media_content_type == "application/pdf":
         extracted_text = _extract_pdf_text(media_bytes)
-        if not extracted_text and settings.gemini_api_key:
-            return _extract_document_analysis_with_gemini(message_text, media_content_type, media_bytes, hinted_type)
         if not extracted_text:
-            return None
-
-        if not settings.openai_api_key:
-            return None
+            return _extract_scanned_pdf_with_openai(message_text, media_bytes, hinted_type, system_content)
 
         client = OpenAI(api_key=settings.openai_api_key)
         response = client.chat.completions.create(
@@ -933,9 +946,6 @@ def _extract_document_analysis(
             ],
         )
     else:
-        if not settings.openai_api_key:
-            return _extract_document_analysis_with_gemini(message_text, media_content_type, media_bytes, hinted_type)
-
         client = OpenAI(api_key=settings.openai_api_key)
         encoded_media = base64.b64encode(media_bytes).decode("utf-8")
         data_url = f"data:{media_content_type};base64,{encoded_media}"

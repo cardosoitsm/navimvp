@@ -23,7 +23,6 @@ class Settings(BaseSettings):
     algorithm: str = Field(default="HS256", alias="ALGORITHM")
 
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
-    gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
 
     database_host: str = Field(default="db", alias="DATABASE_HOST")
     database_name: str = Field(default="navimvp", alias="DATABASE_NAME")
