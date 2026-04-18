@@ -130,6 +130,24 @@ RECOMMENDATIONS_PATTERNS = (
     "como melhorar minha situacao",
 )
 
+HELP_PATTERNS = (
+    "ajuda",
+    "helpnavi",
+    "help navi",
+    "preciso de ajuda",
+    "como usar",
+    "como funciona",
+    "o que voce faz",
+    "o que voces fazem",
+    "tutorial",
+    "nao sei usar",
+    "me ajuda",
+    "menu de ajuda",
+    "opcoes de ajuda",
+    "quais sao suas funcoes",
+    "o que voce consegue fazer",
+)
+
 
 def normalize_text(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", text.lower().strip())
@@ -161,6 +179,8 @@ def detect_intent(text: str) -> str:
         return "loan_evaluation"
     if any(pattern in normalized for pattern in RECOMMENDATIONS_PATTERNS):
         return "financial_recommendations"
+    if any(pattern in normalized for pattern in HELP_PATTERNS):
+        return "help_request"
     if any(pattern in normalized for pattern in DOCUMENT_PATTERNS):
         return "document_request"
     if "quanto gastei" in normalized:
