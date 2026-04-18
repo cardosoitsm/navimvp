@@ -143,6 +143,21 @@ _NON_NAME_TOKENS = {
     "s", "n", "nao sei", "não sei",
 }
 
+# Captures the name that follows a natural-language intro phrase.
+# Matches: "me chame de X", "me chamo X", "pode me chamar de X",
+#          "meu nome é X", "o meu nome é X", "sou o X", "sou a X",
+#          "gosto de ser chamado de X"
+# The captured group grabs 1 or 2 words and stops before commas/punctuation.
+_NAME_FROM_PHRASE_RE = re.compile(
+    r"^(?:"
+    r"(?:pode\s+)?me\s+cham(?:e|o|ar)(?:u)?\s*(?:de\s+)?|"
+    r"(?:o\s+)?meu\s+nome\s+[eé]\s*|"
+    r"sou\s+[oa]\s+|"
+    r"gosto\s+de\s+ser\s+chamado\s+de\s+"
+    r")([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'\-]*(?:\s+[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'\-]*)?)",
+    re.IGNORECASE,
+)
+
 
 def registration_prompt() -> str:
     return (
@@ -172,22 +187,31 @@ def parse_user_name(text: str) -> str | None:
     if normalized in _NON_NAME_TOKENS:
         return None
 
-    # Remove common lead-in phrases: "me chamo X", "meu nome é X", "pode me chamar de X"
-    for pattern in (
-        r"^(?:me\s+chamo|meu\s+nome\s+(?:é|e)|pode\s+me\s+chamar\s+de|sou\s+o|sou\s+a)\s+",
-    ):
-        stripped = re.sub(pattern, "", stripped, flags=re.IGNORECASE).strip()
+    # Try to extract name from an intro phrase ("me chame de X", "meu nome é X", etc.)
+    match = _NAME_FROM_PHRASE_RE.match(stripped)
+    if match:
+        name = match.group(1).strip()
+    else:
+        # No intro phrase — treat the raw text as the name after stripping trailing filler
+        candidate = re.sub(r"\s*[,!?;].*$", "", stripped).strip()
+        candidate = re.sub(
+            r"\s+(?:por\s+favor|obrigado|obrigada|valeu|tudo\s+bem|ok)\s*$",
+            "",
+            candidate,
+            flags=re.IGNORECASE,
+        ).strip()
+        # Reject if it still contains non-name characters (sentence punctuation, digits, etc.)
+        if not re.fullmatch(r"[A-Za-zÀ-ÿ'\-]+(?:\s+[A-Za-zÀ-ÿ'\-]+)*", candidate):
+            return None
+        name = candidate
 
-    # Must contain at least one letter
-    if not re.search(r"[A-Za-zÀ-ÿ]", stripped):
+    if not re.search(r"[A-Za-zÀ-ÿ]", name):
+        return None
+    if len(name) < _NAME_MIN_LEN:
         return None
 
-    # Must be >= min length after trimming
-    if len(stripped) < _NAME_MIN_LEN:
-        return None
-
-    # Capitalize each word nicely
-    return stripped.title()
+    # Capitalize each word of the extracted name
+    return " ".join(w.capitalize() for w in name.split())
 
 
 def save_user_name(user_id: int, nome: str) -> None:
