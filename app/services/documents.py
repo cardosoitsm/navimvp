@@ -129,7 +129,9 @@ def _income_detection_instructions(hinted_type: str) -> str:
             "Considere salario, pagamento, proventos, deposito de folha, PIX recebido recorrente ou transferencia recebida com aparencia de renda. "
             "Nao use saldo atual, limite, total de entradas, transferencias entre contas do proprio usuario, estornos ou reembolsos. "
             "Se nao houver evidencias claras, retorne null. "
-            "Diferencie salario/renda recorrente de liquidacao de investimento, resgate, PIX avulso ou transferencia pontual. "
+            "ATENCAO: detected_income e credit_entries sao campos completamente independentes. "
+            "Mesmo que um credito NAO seja renda (ex: remuneracao de aplicacao automatica, rendimento, estorno, transferencia pontual), "
+            "ele DEVE aparecer em credit_entries. Apenas detected_income fica null nesses casos. "
             "Preencha income_description com o texto mais provavel da origem da renda e income_confidence como high, medium ou low. "
             f"{_summary_page_instructions()}"
             f"{_statement_extraction_instructions()}"
@@ -138,7 +140,11 @@ def _income_detection_instructions(hinted_type: str) -> str:
         return (
             "Para faturas de cartao, detected_income normalmente deve ser null, a menos que exista alguma informacao explicita de renda no documento."
         )
-    return "Se a renda nao estiver clara no documento, retorne detected_income como null."
+    # Generic PDF/image: may be a bank statement — include full extraction instructions
+    return (
+        "Se a renda nao estiver clara no documento, retorne detected_income como null. "
+        f"{_statement_extraction_instructions()}"
+    )
 
 
 def _format_income_confidence(confidence: str | None) -> str | None:
@@ -170,20 +176,21 @@ def _summary_page_instructions() -> str:
 
 def _statement_extraction_instructions() -> str:
     return (
-        "Para extratos bancarios, analise a tabela usando principalmente as colunas "
-        "'Data', 'Descricao', 'Credito (R$)', 'Debito (R$)' e 'Saldo (R$)'. "
-        "Valores sem '-' na frente representam credito/entrada; valores com '-' representam debito/saida. "
-        "Preencha statement_rows com TODAS as linhas visiveis da tabela, sem excecao, inclusive: "
-        "debitos de qualquer valor (mesmo pequenos como R$0,01), "
-        "creditos de qualquer natureza (remuneracao de aplicacao automatica, rendimento, estorno, transferencia, PIX recebido), "
-        "lancamentos com descricoes como 'DEBITO VISA ELECTRON', 'REMUNERACAO APLICACAO AUTOMATICA', 'PIX ENVIADO', etc. "
-        "NAO filtre lancamentos por valor minimo, tipo ou natureza financeira — capture absolutamente todos. "
-        "Para cada linha, use os campos: {date, description, credit, debit, balance, raw_amount_text, confidence}. "
-        "Preencha credit_entries com TODOS os lancamentos de credito (coluna 'Credito (R$)' preenchida), "
-        "incluindo remuneracoes de aplicacao, rendimentos, estornos e qualquer entrada, mesmo minima. "
-        "Preencha debit_entries com TODOS os lancamentos de debito (coluna 'Debito (R$)' preenchida), "
-        "incluindo compras com cartao de debito, PIX enviados, tarifas, qualquer saida de qualquer valor. "
-        "Nao trate credito como renda: cada credito e um lancamento independente que deve constar em credit_entries."
+        "Para extratos bancarios, analise a tabela usando as colunas "
+        "'Data', 'Descricao', 'Credito (R$)', 'Debito (R$)' e 'Saldo (R$)' (ou equivalentes). "
+        "Valores positivos sem sinal sao credito; valores com '-' ou na coluna de debito sao saidas. "
+        "REGRA ABSOLUTA — preencha statement_rows com CADA linha visivel da tabela, sem nenhuma excecao: "
+        "inclua 'DEBITO VISA ELECTRON BRASIL ...' (direcao: debito — vai em debit_entries, NAO em credit_entries), "
+        "inclua 'REMUNERACAO APLICACAO AUTOMATICA' mesmo que o valor seja R$0,02 (direcao: credito — vai em credit_entries), "
+        "inclua qualquer lancamento de qualquer valor, tipo ou natureza — nao ha filtro. "
+        "REGRA DE DIRECAO: descricoes com 'DEBITO VISA ELECTRON', 'DEBITO MASTERCARD', 'DEBITO ELO' "
+        "sao sempre saidas (coluna debito) — nunca as coloque em credit_entries. "
+        "REGRA DE INDEPENDENCIA: credit_entries NAO eh filtrado por detected_income. "
+        "Um lancamento de 'REMUNERACAO APLICACAO AUTOMATICA', 'RENDIMENTO', 'RESGATE' ou qualquer investimento "
+        "DEVE constar em credit_entries independentemente — apenas detected_income fica null nesses casos. "
+        "Para cada linha de statement_rows use: {date, description, credit, debit, balance, raw_amount_text, confidence}. "
+        "debit_entries: TODOS os debitos — compras, PIX enviados, tarifas, qualquer saida. "
+        "credit_entries: TODOS os creditos — rendimentos, aplicacoes, estornos, transferencias, qualquer entrada."
     )
 
 
@@ -1264,15 +1271,19 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
                 formatted_charges_date = format_ptbr_date(charges_debit_date) or charges_debit_date
                 lines.append(f"- data prevista de debito dos encargos: {formatted_charges_date}")
         if credit_entries:
-            lines.extend(["", "Creditos identificados no extrato:"])
-            for entry in credit_entries[:3]:
+            lines.extend(["", f"Creditos identificados no extrato ({len(credit_entries)} no total):"])
+            for entry in credit_entries[:10]:
                 prefix = f"{entry['date']} - " if entry.get("date") else ""
                 lines.append(f"- {prefix}{entry['description']}: R${entry['amount']:.2f}")
+            if len(credit_entries) > 10:
+                lines.append(f"- ...e mais {len(credit_entries) - 10} lancamentos de credito.")
         if debit_entries:
-            lines.extend(["", "Debitos identificados no extrato:"])
-            for entry in debit_entries[:3]:
+            lines.extend(["", f"Debitos identificados no extrato ({len(debit_entries)} no total):"])
+            for entry in debit_entries[:10]:
                 prefix = f"{entry['date']} - " if entry.get("date") else ""
                 lines.append(f"- {prefix}{entry['description']}: R${entry['amount']:.2f}")
+            if len(debit_entries) > 10:
+                lines.append(f"- ...e mais {len(debit_entries) - 10} lancamentos de debito.")
     elif document_type == "fatura_cartao":
         lines.append("Recebi sua fatura e ja extraí alguns dados importantes.")
         if invoice_total is not None:
