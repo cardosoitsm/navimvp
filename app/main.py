@@ -80,6 +80,7 @@ from app.services.onboarding import (
     cost_review_prompt,
     cost_review_retry_prompt,
     has_cost_review_candidates,
+    infer_invoice_cost_candidates,
     get_current_card,
     get_card_names,
     get_onboarding_state,
@@ -386,14 +387,30 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
     if onboarding_state == COST_REVIEW_PENDING:
-        fixed_costs, variable_costs = infer_cost_candidates(user_id)
+        is_post_cards = bool(existing_card_names)
+        if is_post_cards:
+            fixed_costs, variable_costs = infer_invoice_cost_candidates(user_id)
+        else:
+            fixed_costs, variable_costs = infer_cost_candidates(user_id)
+
         if not fixed_costs and not variable_costs:
+            if is_post_cards:
+                complete_document_onboarding(user_id)
+                summary_msg, ready_msg = build_onboarding_completion_message(user_id)
+                return Response(content=build_twiml([summary_msg, ready_msg]), media_type="application/xml")
             set_onboarding_state(user_id, CARD_COUNT_PENDING)
             resposta = card_count_prompt()
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
+        origem = "fatura" if is_post_cards else "extrato"
+
         if should_skip_budget_onboarding(mensagem):
-            save_cost_candidates(user_id, confirmed=False)
+            save_cost_candidates(user_id, confirmed=False, fixed_costs=fixed_costs, variable_costs=variable_costs, origem=origem)
+            if is_post_cards:
+                complete_document_onboarding(user_id)
+                skip_msg = "Tudo bem. A gente pode revisar esses custos com calma mais para frente."
+                summary_msg, ready_msg = build_onboarding_completion_message(user_id)
+                return Response(content=build_twiml([skip_msg, summary_msg, ready_msg]), media_type="application/xml")
             set_onboarding_state(user_id, CARD_COUNT_PENDING)
             resposta = (
                 "Tudo bem. A gente pode revisar esses custos com calma mais para frente.\n\n"
@@ -409,7 +426,13 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 confirmed=True,
                 fixed_costs=adjusted_fixed,
                 variable_costs=adjusted_variable,
+                origem=origem,
             )
+            if is_post_cards:
+                complete_document_onboarding(user_id)
+                summary_msg, ready_msg = build_onboarding_completion_message(user_id)
+                confirmation_msg = build_cost_review_confirmation(adjusted_fixed, adjusted_variable)
+                return Response(content=build_twiml([confirmation_msg, summary_msg, ready_msg]), media_type="application/xml")
             set_onboarding_state(user_id, CARD_COUNT_PENDING)
             resposta = (
                 f"{build_cost_review_confirmation(adjusted_fixed, adjusted_variable)}\n\n"
@@ -418,7 +441,12 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
         if is_confirmation_yes(mensagem):
-            save_cost_candidates(user_id, confirmed=True)
+            save_cost_candidates(user_id, confirmed=True, fixed_costs=fixed_costs, variable_costs=variable_costs, origem=origem)
+            if is_post_cards:
+                complete_document_onboarding(user_id)
+                summary_msg, ready_msg = build_onboarding_completion_message(user_id)
+                confirm_msg = "Perfeito. Vou considerar essa leitura dos seus custos para te acompanhar melhor."
+                return Response(content=build_twiml([confirm_msg, summary_msg, ready_msg]), media_type="application/xml")
             set_onboarding_state(user_id, CARD_COUNT_PENDING)
             resposta = (
                 "Perfeito. Vou considerar essa leitura inicial dos seus custos para te acompanhar melhor.\n\n"
@@ -556,10 +584,20 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                         f"Agora me manda a fatura atual do {next_card['nome_cartao']}."
                     )
                 else:
-                    complete_document_onboarding(user_id)
-                    summary_msg, ready_msg = build_onboarding_completion_message(user_id)
-                    intro = f"Perfeito. Já deixei a fatura do {current_card['nome_cartao']} salva por aqui.\n\n{summary_msg}"
-                    return Response(content=build_twiml([intro, ready_msg]), media_type="application/xml")
+                    set_onboarding_state(user_id, COST_REVIEW_PENDING)
+                    invoice_fixed, invoice_variable = infer_invoice_cost_candidates(user_id)
+                    card_name_display = str(current_card["nome_cartao"])
+                    if invoice_fixed or invoice_variable:
+                        resposta = (
+                            f"Perfeito. Já deixei a fatura do {card_name_display} salva por aqui.\n\n"
+                            f"{cost_review_prompt(invoice_fixed, invoice_variable)}"
+                        )
+                    else:
+                        resposta = (
+                            f"Perfeito. Já deixei a fatura do {card_name_display} salva por aqui.\n\n"
+                            "Estou analisando os lançamentos em segundo plano. "
+                            "Me responda qualquer coisa para eu te mostrar o que identifiquei."
+                        )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
 
             if should_skip_document_onboarding(mensagem):
