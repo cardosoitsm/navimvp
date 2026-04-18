@@ -871,28 +871,29 @@ def save_cost_candidates(
     confirmed: bool,
     fixed_costs: list[dict[str, float | str]] | None = None,
     variable_costs: list[dict[str, float | str]] | None = None,
+    origem: str = "extrato",
 ) -> None:
     if fixed_costs is None or variable_costs is None:
         fixed_costs, variable_costs = infer_cost_candidates(user_id)
     with get_cursor() as (conn, cursor):
         if _table_exists(cursor, "custos_mensais"):
-            cursor.execute("DELETE FROM custos_mensais WHERE user_id = %s AND origem = 'extrato'", (user_id,))
+            cursor.execute("DELETE FROM custos_mensais WHERE user_id = %s AND origem = %s", (user_id, origem))
             if confirmed:
                 for item in fixed_costs:
                     cursor.execute(
                         """
                         INSERT INTO custos_mensais (user_id, descricao, categoria, valor_medio, tipo_custo, confirmado, origem)
-                        VALUES (%s, %s, %s, %s, 'fixo', TRUE, 'extrato')
+                        VALUES (%s, %s, %s, %s, 'fixo', TRUE, %s)
                         """,
-                        (user_id, item["descricao"], item.get("categoria"), item["valor"]),
+                        (user_id, item["descricao"], item.get("categoria"), item["valor"], origem),
                     )
                 for item in variable_costs:
                     cursor.execute(
                         """
                         INSERT INTO custos_mensais (user_id, descricao, categoria, valor_medio, tipo_custo, confirmado, origem)
-                        VALUES (%s, %s, %s, %s, 'variavel', TRUE, 'extrato')
+                        VALUES (%s, %s, %s, %s, 'variavel', TRUE, %s)
                         """,
-                        (user_id, item["descricao"], item.get("categoria"), item["valor"]),
+                        (user_id, item["descricao"], item.get("categoria"), item["valor"], origem),
                     )
 
         if _column_exists(cursor, "configuracoes_usuario", "custos_onboarding_concluido"):
@@ -1351,3 +1352,73 @@ def save_current_balance(user_id: int, balance: float) -> None:
             (user_id, balance),
         )
         conn.commit()
+
+
+def _latest_invoice_analysis(user_id: int) -> dict | None:
+    with get_cursor() as (_, cursor):
+        if not _table_exists(cursor, "documentos_financeiros"):
+            return None
+        cursor.execute(
+            """
+            SELECT extracted_json
+            FROM documentos_financeiros
+            WHERE user_id = %s
+              AND tipo_documento = 'fatura_cartao'
+              AND extracted_json IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        )
+        row = cursor.fetchone()
+    if not row or not row[0]:
+        return None
+    try:
+        parsed = json.loads(row[0])
+    except (TypeError, json.JSONDecodeError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def infer_invoice_cost_candidates(user_id: int) -> tuple[list[dict[str, float | str]], list[dict[str, float | str]]]:
+    analysis = _latest_invoice_analysis(user_id)
+    if not analysis:
+        return [], []
+
+    debit_entries = analysis.get("debit_entries")
+    if not isinstance(debit_entries, list):
+        return [], []
+
+    fixed_costs: list[dict[str, float | str]] = []
+    variable_costs: list[dict[str, float | str]] = []
+    seen_keys: set[str] = set()
+
+    for entry in debit_entries:
+        if not isinstance(entry, dict):
+            continue
+        description = str(entry.get("description") or "").strip()
+        amount = _normalize_amount(entry.get("amount"))
+        if not description or amount is None:
+            continue
+
+        cost_type = _classify_cost_type(description)
+        if not cost_type:
+            continue
+
+        key = _normalize_text(description)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+
+        payload: dict[str, float | str] = {
+            "descricao": description,
+            "valor": amount,
+            "tipo_custo": cost_type,
+            "categoria": _classify_cost_category(description) or "outros",
+        }
+        if cost_type == "fixo":
+            fixed_costs.append(payload)
+        else:
+            variable_costs.append(payload)
+
+    return fixed_costs[:4], variable_costs[:4]
