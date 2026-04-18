@@ -155,13 +155,18 @@ def _statement_extraction_instructions() -> str:
     return (
         "Para extratos bancarios, analise a tabela usando principalmente as colunas "
         "'Data', 'Descricao', 'Credito (R$)', 'Debito (R$)' e 'Saldo (R$)'. "
-        "Identifique as entradas olhando a coluna 'Credito (R$)' e correlacionando com a descricao da mesma linha. "
-        "Se a descricao contiver 'LIQUIDO DE VENCIMENTO', registre essa linha em credit_entries com a descricao e o valor da coluna 'Credito (R$)'. "
-        "Outra regra importante: valores sem '-' na frente representam credito/entrada; valores com '-' representam debito/saida. "
-        "Preencha statement_rows como lista de objetos com {date, description, credit, debit, balance, raw_amount_text, confidence}. "
-        "Para cada linha visivel, use a data da mesma linha na coluna 'Data'. "
-        "Preencha credit_entries e debit_entries como listas de objetos com {date, description, amount}. "
-        "Nao trate todo credito como renda: credito pode ser investimento, transferencia ou outra entrada pontual."
+        "Valores sem '-' na frente representam credito/entrada; valores com '-' representam debito/saida. "
+        "Preencha statement_rows com TODAS as linhas visiveis da tabela, sem excecao, inclusive: "
+        "debitos de qualquer valor (mesmo pequenos como R$0,01), "
+        "creditos de qualquer natureza (remuneracao de aplicacao automatica, rendimento, estorno, transferencia, PIX recebido), "
+        "lancamentos com descricoes como 'DEBITO VISA ELECTRON', 'REMUNERACAO APLICACAO AUTOMATICA', 'PIX ENVIADO', etc. "
+        "NAO filtre lancamentos por valor minimo, tipo ou natureza financeira — capture absolutamente todos. "
+        "Para cada linha, use os campos: {date, description, credit, debit, balance, raw_amount_text, confidence}. "
+        "Preencha credit_entries com TODOS os lancamentos de credito (coluna 'Credito (R$)' preenchida), "
+        "incluindo remuneracoes de aplicacao, rendimentos, estornos e qualquer entrada, mesmo minima. "
+        "Preencha debit_entries com TODOS os lancamentos de debito (coluna 'Debito (R$)' preenchida), "
+        "incluindo compras com cartao de debito, PIX enviados, tarifas, qualquer saida de qualquer valor. "
+        "Nao trate credito como renda: cada credito e um lancamento independente que deve constar em credit_entries."
     )
 
 
@@ -170,7 +175,7 @@ def _normalize_statement_entries(entries: Any) -> list[dict[str, Any]]:
         return []
 
     normalized_entries: list[dict[str, Any]] = []
-    for entry in entries[:10]:
+    for entry in entries[:200]:
         if not isinstance(entry, dict):
             continue
         description = str(entry.get("description") or "").strip()
@@ -249,7 +254,7 @@ def _derive_statement_entries(statement_rows: list[dict[str, Any]]) -> tuple[lis
                 }
             )
 
-    return credit_entries[:10], debit_entries[:10]
+    return credit_entries[:200], debit_entries[:200]
 
 
 def _classify_income_kind(description: str) -> str:
@@ -461,9 +466,9 @@ def _build_document_analysis_system_prompt(income_instructions: str, hinted_type
         '"income_description":"texto" ou null,'
         '"income_confidence":"high|medium|low" ou null,'
         '"income_kind":"salary|transfer|investment|refund|unknown" ou null,'
-        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"texto","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low"}],'
-        '"credit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}],'
-        '"debit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}],'
+        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"texto","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low"}] (inclua TODAS as linhas sem filtrar por valor ou tipo),'
+        '"credit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}] (TODOS os creditos: remuneracao de aplicacao, rendimento, estorno, transferencia — mesmo R$0,01),'
+        '"debit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}] (TODOS os debitos: cartao de debito, PIX enviado, tarifa, compra — mesmo valores pequenos),'
         '"estimated_fixed_expenses":numero ou null,'
         '"top_items":["item 1","item 2"]}. '
         "Para faturas de cartao: credit_limit e o limite total do cartao (campo 'limite', 'limite do cartao' ou similar). "
