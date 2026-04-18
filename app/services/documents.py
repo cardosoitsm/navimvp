@@ -131,6 +131,7 @@ def _income_detection_instructions(hinted_type: str) -> str:
             "Se nao houver evidencias claras, retorne null. "
             "Diferencie salario/renda recorrente de liquidacao de investimento, resgate, PIX avulso ou transferencia pontual. "
             "Preencha income_description com o texto mais provavel da origem da renda e income_confidence como high, medium ou low. "
+            f"{_summary_page_instructions()}"
             f"{_statement_extraction_instructions()}"
         )
     if hinted_type == "fatura_cartao":
@@ -149,6 +150,22 @@ def _format_income_confidence(confidence: str | None) -> str | None:
     if not confidence:
         return None
     return mapping.get(confidence, confidence)
+
+
+def _summary_page_instructions() -> str:
+    return (
+        "Se o documento contiver uma pagina de resumo financeiro "
+        "(ex: 'RESUMO DO EXTRATO', 'DEMONSTRATIVO', 'POSICAO DA CONTA', 'RESUMO DA CONTA'), "
+        "extraia tambem os seguintes campos: "
+        "current_balance: saldo atual da conta corrente (campo 'SALDO', 'Saldo Atual', 'Saldo Disponivel'); "
+        "account_limit: limite da conta corrente (campo 'Limite', 'Limite da Conta', 'Limite Disponivel', 'Limite Total'); "
+        "pending_charges: provisao total de encargos — some juros e IOF se estiverem separados "
+        "(campos 'Provisao de Juros', 'Provisao de IOF', 'Encargos a Debitar', 'Juros + IOF'); "
+        "charges_debit_date: data prevista de debito dos encargos no formato YYYY-MM-DD "
+        "(campo 'Data de Debito', 'Debito em', 'Vencimento dos Encargos', 'Data do Debito dos Juros'). "
+        "Se juros e IOF tiverem datas separadas, use a mais proxima. "
+        "Esses campos devem ser preenchidos mesmo que a pagina de resumo seja diferente da pagina de lancamentos."
+    )
 
 
 def _statement_extraction_instructions() -> str:
@@ -466,6 +483,9 @@ def _build_document_analysis_system_prompt(income_instructions: str, hinted_type
         '"income_description":"texto" ou null,'
         '"income_confidence":"high|medium|low" ou null,'
         '"income_kind":"salary|transfer|investment|refund|unknown" ou null,'
+        '"account_limit":numero ou null,'
+        '"pending_charges":numero ou null,'
+        '"charges_debit_date":"YYYY-MM-DD" ou null,'
         '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"texto","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low"}] (inclua TODAS as linhas sem filtrar por valor ou tipo),'
         '"credit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}] (TODOS os creditos: remuneracao de aplicacao, rendimento, estorno, transferencia — mesmo R$0,01),'
         '"debit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}] (TODOS os debitos: cartao de debito, PIX enviado, tarifa, compra — mesmo valores pequenos),'
@@ -1103,6 +1123,9 @@ def _persist_financial_context(user_id: int, analysis: dict[str, Any], card_id: 
     minimum_payment = _safe_float(analysis.get("minimum_payment"))
     due_date = analysis.get("due_date")
     issuer = analysis.get("issuer")
+    account_limit = _safe_float(analysis.get("account_limit"))
+    pending_charges = _safe_float(analysis.get("pending_charges"))
+    charges_debit_date = _normalize_date(analysis.get("charges_debit_date"))
 
     pressure = None
     if invoice_total is not None:
@@ -1121,18 +1144,25 @@ def _persist_financial_context(user_id: int, analysis: dict[str, Any], card_id: 
                 renda_identificada,
                 despesas_fixas_estimadas,
                 pressao_cartao,
+                limite_conta,
+                provisao_encargos,
+                data_debito_encargos,
                 updated_at
             )
-            VALUES (%s, %s, %s, %s, %s, NOW())
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
             ON CONFLICT (user_id)
             DO UPDATE SET
                 saldo_atual_estimado = COALESCE(EXCLUDED.saldo_atual_estimado, perfil_financeiro.saldo_atual_estimado),
                 renda_identificada = COALESCE(EXCLUDED.renda_identificada, perfil_financeiro.renda_identificada),
                 despesas_fixas_estimadas = COALESCE(EXCLUDED.despesas_fixas_estimadas, perfil_financeiro.despesas_fixas_estimadas),
                 pressao_cartao = COALESCE(EXCLUDED.pressao_cartao, perfil_financeiro.pressao_cartao),
+                limite_conta = COALESCE(EXCLUDED.limite_conta, perfil_financeiro.limite_conta),
+                provisao_encargos = COALESCE(EXCLUDED.provisao_encargos, perfil_financeiro.provisao_encargos),
+                data_debito_encargos = COALESCE(EXCLUDED.data_debito_encargos, perfil_financeiro.data_debito_encargos),
                 updated_at = NOW()
             """,
-            (user_id, current_balance, detected_income, estimated_fixed_expenses, pressure),
+            (user_id, current_balance, detected_income, estimated_fixed_expenses, pressure,
+             account_limit, pending_charges, charges_debit_date),
         )
 
         if document_type == "fatura_cartao" and invoice_total is not None:
@@ -1223,6 +1253,16 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
             }
             lines.append(f"- encontrei um credito, mas ele parece ser {labels.get(income_kind, 'um credito pontual')} e nao renda recorrente")
             lines.append(f"- origem observada: {income_description}")
+        account_limit = _safe_float(analysis.get("account_limit"))
+        if account_limit is not None:
+            lines.append(f"- limite da conta: {format_brl(account_limit)}")
+        pending_charges = _safe_float(analysis.get("pending_charges"))
+        if pending_charges is not None:
+            lines.append(f"- provisao de encargos (juros/IOF): {format_brl(pending_charges)}")
+            charges_debit_date = analysis.get("charges_debit_date")
+            if charges_debit_date:
+                formatted_charges_date = format_ptbr_date(charges_debit_date) or charges_debit_date
+                lines.append(f"- data prevista de debito dos encargos: {formatted_charges_date}")
         if credit_entries:
             lines.extend(["", "Creditos identificados no extrato:"])
             for entry in credit_entries[:3]:
