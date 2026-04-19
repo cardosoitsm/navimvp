@@ -10,7 +10,8 @@ from app.db import get_cursor
 from app.schemas import ParsedTransaction, PendingTransaction
 from app.services.budgets import build_budget_feedback
 from app.services.conversation import save_pending_confirmation, should_request_confirmation
-from app.services.formatting import format_brl, normalize_ptbr_accents
+from app.services.formatting import format_brl
+from app.services.users import get_user_locale
 from app.services.summary import gerar_insight
 
 
@@ -69,7 +70,7 @@ def _parse_openai_json(content: str) -> list[dict]:
     raise ValueError("Formato inesperado retornado pela IA")
 
 
-def _extract_transactions_from_ai(text: str) -> list[ParsedTransaction]:
+def _extract_transactions_from_ai(text: str, user_locale: str) -> list[ParsedTransaction]:
     settings = get_settings()
     if not settings.openai_api_key:
         raise HTTPException(
@@ -81,14 +82,21 @@ def _extract_transactions_from_ai(text: str) -> list[ParsedTransaction]:
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
         messages=[
-            {"role": "system", "content": "Responda apenas em JSON valido."},
+            {
+                "role": "system",
+                "content": (
+                    "Responda apenas em JSON valido. "
+                    f"Idioma do usuário: {user_locale}. "
+                    "Retorne todas as strings (categoria, subcategoria) com ortografia e acentuação CORRETAS desse idioma."
+                ),
+            },
             {
                 "role": "user",
                 "content": (
                     'Classifique a mensagem:\n\n'
                     f'"{text}"\n\n'
                     "Retorne uma lista de objetos no formato:\n"
-                    '[{"tipo":"receita ou despesa","categoria":"categoria COM acentuacao PT-BR correta (ex: Alimentação, Educação, Automóvel)","subcategoria":"subcategoria especifica COM acentuacao PT-BR correta ou null","valor":numero}]'
+                    '[{"tipo":"receita ou despesa","categoria":"categoria","subcategoria":"subcategoria especifica ou null","valor":numero}]'
                 ),
             },
         ],
@@ -109,11 +117,9 @@ def _extract_transactions_from_ai(text: str) -> list[ParsedTransaction]:
 
 def _normalize_transaction(text: str, transaction: ParsedTransaction) -> PendingTransaction:
     categoria_regra = classificar_categoria(text)
-    categoria_raw = categoria_regra or (transaction.categoria or "outros").strip()
-    categoria = normalize_ptbr_accents(categoria_raw)
+    categoria = categoria_regra or (transaction.categoria or "outros").strip()
     tipo = _normalizar_texto(transaction.tipo or "despesa")
-    subcategoria_raw = transaction.subcategoria.strip() if transaction.subcategoria else None
-    subcategoria = normalize_ptbr_accents(subcategoria_raw) if subcategoria_raw else None
+    subcategoria = transaction.subcategoria.strip() if transaction.subcategoria else None
     return PendingTransaction(tipo=tipo, categoria=categoria, subcategoria=subcategoria, valor=float(transaction.valor))
 
 
@@ -126,8 +132,9 @@ def _build_confirmation_message(transaction: PendingTransaction) -> str:
 
 
 def process_user_message(text: str, user_id: int) -> dict[str, str]:
+    user_locale = get_user_locale(user_id)
     try:
-        transactions = _extract_transactions_from_ai(text)
+        transactions = _extract_transactions_from_ai(text, user_locale)
     except (json.JSONDecodeError, ValueError):
         logger.warning("ai_parse_error text_len=%d", len(text))
         raise HTTPException(
