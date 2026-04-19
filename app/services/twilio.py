@@ -25,6 +25,13 @@ def _normalize_whatsapp_number(numero: str) -> str:
     return "whatsapp:" + number_part
 
 
+def _ensure_same_channel(from_number: str, to_number: str) -> str:
+    """Return from_number with the same channel prefix as to_number."""
+    if to_number.lower().startswith("whatsapp:"):
+        return _normalize_whatsapp_number(from_number)
+    return from_number
+
+
 def responder(numero: str, mensagem: str) -> None:
     settings = get_settings()
     if not settings.account_sid or not settings.auth_token or not settings.twilio_number:
@@ -35,21 +42,22 @@ def responder(numero: str, mensagem: str) -> None:
         )
         return
 
-    normalized = _normalize_whatsapp_number(numero)
+    to_normalized = _normalize_whatsapp_number(numero)
+    from_normalized = _ensure_same_channel(settings.twilio_number, to_normalized)
     url = (
         f"https://api.twilio.com/2010-04-01/Accounts/"
         f"{settings.account_sid}/Messages.json"
     )
     data = {
-        "From": settings.twilio_number,
-        "To": normalized,
+        "From": from_normalized,
+        "To": to_normalized,
         "Body": mensagem[:_WHATSAPP_MAX_CHARS],
     }
 
     logger.info(
-        "twilio_send_attempt to=%s from=%s body_len=%d",
-        normalized,
-        settings.twilio_number,
+        "twilio_send_normalized from=%s to=%s channel=whatsapp body_len=%d",
+        from_normalized,
+        to_normalized,
         len(mensagem),
     )
 
@@ -59,14 +67,15 @@ def responder(numero: str, mensagem: str) -> None:
 
     if resp.status_code >= 400:
         logger.error(
-            "twilio_send_failed to=%s status=%d body=%s",
-            normalized,
+            "twilio_send_failed from=%s to=%s status=%d body=%s",
+            from_normalized,
+            to_normalized,
             resp.status_code,
             resp.text[:500],
         )
         resp.raise_for_status()
 
-    logger.info("twilio_send_ok to=%s status=%d", normalized, resp.status_code)
+    logger.info("twilio_send_ok to=%s status=%d", to_normalized, resp.status_code)
 
 
 def _split_message(text: str, max_len: int = _WHATSAPP_MAX_CHARS) -> list[str]:
