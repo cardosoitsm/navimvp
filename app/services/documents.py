@@ -176,19 +176,23 @@ def _summary_page_instructions() -> str:
 
 def _statement_extraction_instructions() -> str:
     return (
-        "Para extratos bancarios, analise a tabela usando as colunas "
-        "'Data', 'Descricao', 'Credito (R$)', 'Debito (R$)' e 'Saldo (R$)' (ou equivalentes). "
+        "REGRA FUNDAMENTAL — retorne TODOS os lancamentos encontrados no texto, sem nenhuma excecao. "
+        "Nao filtre por tipo, valor, categoria ou natureza. "
+        "Creditos, debitos, valores minimos (ex: R$0,02), lancamentos sem categoria clara — TODOS devem estar em statement_rows. "
+        "Para cada linha com data visivel no texto, crie uma entrada em statement_rows. "
+        "Para extratos bancarios, use as colunas 'Data', 'Descricao', 'Credito (R$)', 'Debito (R$)' e 'Saldo (R$)' (ou equivalentes). "
         "Valores positivos sem sinal sao credito; valores com '-' ou na coluna de debito sao saidas. "
-        "REGRA ABSOLUTA — preencha statement_rows com CADA linha visivel da tabela, sem nenhuma excecao: "
-        "inclua 'DEBITO VISA ELECTRON BRASIL ...' (direcao: debito — vai em debit_entries, NAO em credit_entries), "
-        "inclua 'REMUNERACAO APLICACAO AUTOMATICA' mesmo que o valor seja R$0,02 (direcao: credito — vai em credit_entries), "
-        "inclua qualquer lancamento de qualquer valor, tipo ou natureza — nao ha filtro. "
         "REGRA DE DIRECAO: descricoes com 'DEBITO VISA ELECTRON', 'DEBITO MASTERCARD', 'DEBITO ELO' "
         "sao sempre saidas (coluna debito) — nunca as coloque em credit_entries. "
         "REGRA DE INDEPENDENCIA: credit_entries NAO eh filtrado por detected_income. "
         "Um lancamento de 'REMUNERACAO APLICACAO AUTOMATICA', 'RENDIMENTO', 'RESGATE' ou qualquer investimento "
         "DEVE constar em credit_entries independentemente — apenas detected_income fica null nesses casos. "
-        "Para cada linha de statement_rows use: {date, description, credit, debit, balance, raw_amount_text, confidence}. "
+        "Para cada entrada em statement_rows use os campos: "
+        "date, description (exatamente como no documento), credit, debit, balance, raw_amount_text, confidence, "
+        "tipo_custo ('fixo' para recorrentes mensais, 'variavel' para gastos pontuais, "
+        "'rendimento' para creditos de investimento/aplicacao, 'credito' para outros creditos), "
+        "categoria_sugerida (use uma das categorias disponiveis ou 'Outros'), "
+        "confirmado (sempre false na primeira analise). "
         "debit_entries: TODOS os debitos — compras, PIX enviados, tarifas, qualquer saida. "
         "credit_entries: TODOS os creditos — rendimentos, aplicacoes, estornos, transferencias, qualquer entrada."
     )
@@ -241,6 +245,10 @@ def _normalize_statement_rows(rows: Any) -> list[dict[str, Any]]:
         if credit is None and debit is None and balance is None:
             continue
 
+        tipo_custo_raw = str(row.get("tipo_custo") or "").strip().lower()
+        tipo_custo = tipo_custo_raw if tipo_custo_raw in {"fixo", "variavel", "rendimento", "credito"} else "variavel"
+        categoria_sugerida = str(row.get("categoria_sugerida") or "Outros").strip() or "Outros"
+
         normalized_rows.append(
             {
                 "date": _normalize_date(row.get("date")),
@@ -250,6 +258,9 @@ def _normalize_statement_rows(rows: Any) -> list[dict[str, Any]]:
                 "balance": balance,
                 "raw_amount_text": raw_amount_text or None,
                 "confidence": confidence if confidence in {"high", "medium", "low"} else "medium",
+                "tipo_custo": tipo_custo,
+                "categoria_sugerida": categoria_sugerida,
+                "confirmado": False,
             }
         )
 
@@ -599,7 +610,8 @@ def _get_categories_for_prompt() -> str:
 def _build_document_analysis_system_prompt(income_instructions: str, hinted_type: str) -> str:
     categories_hint = _get_categories_for_prompt()
     base = (
-        "Voce analisa documentos financeiros. "
+        "Voce analisa documentos financeiros e retorna TODOS os lancamentos encontrados, sem excecao. "
+        "Nao filtre por tipo, valor ou categoria — creditos, debitos, valores minimos, lancamentos sem categoria clara — TODOS devem ser retornados em statement_rows. "
         "Retorne apenas JSON valido com este formato: "
         '{"document_type":"extrato|fatura_cartao|desconhecido",'
         '"summary":"texto curto",'
@@ -617,7 +629,7 @@ def _build_document_analysis_system_prompt(income_instructions: str, hinted_type
         '"account_limit":numero ou null,'
         '"pending_charges":numero ou null,'
         '"charges_debit_date":"YYYY-MM-DD" ou null,'
-        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"texto","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low"}] (inclua TODAS as linhas sem filtrar por valor ou tipo),'
+        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"texto EXATAMENTE como no documento","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low","tipo_custo":"fixo|variavel|rendimento|credito","categoria_sugerida":"nome da categoria ou Outros","confirmado":false}] — INCLUA ABSOLUTAMENTE TODOS os lancamentos sem filtrar,'
         '"credit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}] (TODOS os creditos: remuneracao de aplicacao, rendimento, estorno, transferencia — mesmo R$0,01),'
         '"debit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}] (TODOS os debitos: cartao de debito, PIX enviado, tarifa, compra — mesmo valores pequenos),'
         '"estimated_fixed_expenses":numero ou null,'
@@ -1253,16 +1265,53 @@ def _extract_document_analysis(
     analysis["credit_entries"] = derived_credit_entries or _normalize_statement_entries(analysis.get("credit_entries"))
     analysis["debit_entries"] = derived_debit_entries or _normalize_statement_entries(analysis.get("debit_entries"))
 
-    # ETAPA 5: Completeness verification
+    # ETAPA 5: Completeness verification — retry once if GPT returned fewer entries than expected
     gpt_count = len(analysis["statement_rows"])
     analysis["_raw_candidates"] = raw_count
     if raw_count > 0 and gpt_count < raw_count:
         logger.warning(
-            "doc_completeness_mismatch raw_candidates=%d gpt_classified=%d hinted_type=%s",
+            "doc_completeness_mismatch raw_candidates=%d gpt_classified=%d hinted_type=%s — retrying",
             raw_count,
             gpt_count,
             hinted_type,
         )
+        try:
+            retry_response = client.chat.completions.create(
+                model="gpt-4.1-mini",
+                messages=[
+                    {"role": "system", "content": system_content},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"ATENCAO: na tentativa anterior retornei {gpt_count} lancamentos, "
+                            f"mas o texto contem aproximadamente {raw_count} linhas com data. "
+                            "Retorne TODOS os lancamentos — nao descarte nenhum, "
+                            "mesmo creditos de rendimento, valores pequenos ou lancamentos sem categoria clara. "
+                            "Cada linha com data no texto deve gerar uma entrada em statement_rows.\n\n"
+                            f"{anonymized_text}"
+                        ),
+                    },
+                ],
+            )
+            retry_content = retry_response.choices[0].message.content or "{}"
+            retry_analysis = _parse_openai_json(retry_content)
+            retry_rows = _normalize_statement_rows(retry_analysis.get("statement_rows"))
+            if len(retry_rows) > gpt_count:
+                logger.info(
+                    "doc_retry_improved gpt_before=%d gpt_after=%d",
+                    gpt_count,
+                    len(retry_rows),
+                )
+                analysis["statement_rows"] = retry_rows
+                derived_credit_entries, derived_debit_entries = _derive_statement_entries(retry_rows)
+                analysis["credit_entries"] = derived_credit_entries or _normalize_statement_entries(retry_analysis.get("credit_entries"))
+                analysis["debit_entries"] = derived_debit_entries or _normalize_statement_entries(retry_analysis.get("debit_entries"))
+                for key in ("current_balance", "account_limit", "pending_charges", "charges_debit_date",
+                            "detected_income", "income_description", "income_confidence", "summary"):
+                    if retry_analysis.get(key) is not None and analysis.get(key) is None:
+                        analysis[key] = retry_analysis[key]
+        except Exception as exc:
+            logger.warning("doc_retry_failed: %s", exc)
 
     return _normalize_income_signal(analysis, hinted_type)
 
@@ -1438,20 +1487,45 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
             if charges_debit_date:
                 formatted_charges_date = format_ptbr_date(charges_debit_date) or charges_debit_date
                 lines.append(f"- data prevista de debito dos encargos: {formatted_charges_date}")
-        if credit_entries:
-            lines.extend(["", f"Creditos identificados no extrato ({len(credit_entries)} no total):"])
-            for entry in credit_entries[:10]:
-                prefix = f"{entry['date']} - " if entry.get("date") else ""
-                lines.append(f"- {prefix}{entry['description']}: R${entry['amount']:.2f}")
-            if len(credit_entries) > 10:
-                lines.append(f"- ...e mais {len(credit_entries) - 10} lancamentos de credito.")
-        if debit_entries:
-            lines.extend(["", f"Debitos identificados no extrato ({len(debit_entries)} no total):"])
-            for entry in debit_entries[:10]:
-                prefix = f"{entry['date']} - " if entry.get("date") else ""
-                lines.append(f"- {prefix}{entry['description']}: R${entry['amount']:.2f}")
-            if len(debit_entries) > 10:
-                lines.append(f"- ...e mais {len(debit_entries) - 10} lancamentos de debito.")
+
+        # List ALL transactions with exact descriptions, tipo_custo and categoria_sugerida
+        if statement_rows:
+            lines.extend(["", f"Lançamentos encontrados ({len(statement_rows)} no total):"])
+            for row in statement_rows[:20]:
+                date_prefix = f"{row['date']} " if row.get("date") else ""
+                if row.get("credit") is not None:
+                    valor_str = f"+R${row['credit']:.2f}"
+                elif row.get("debit") is not None:
+                    valor_str = f"-R${row['debit']:.2f}"
+                else:
+                    valor_str = ""
+                tipo = row.get("tipo_custo") or ""
+                cat = row.get("categoria_sugerida") or ""
+                meta = " | ".join(part for part in [tipo, cat] if part)
+                suffix = f" ({meta})" if meta else ""
+                val_part = f": {valor_str}" if valor_str else ""
+                lines.append(f"- {date_prefix}{row['description']}{val_part}{suffix}")
+            if len(statement_rows) > 20:
+                lines.append(f"- ...e mais {len(statement_rows) - 20} lançamentos.")
+            lines.extend([
+                "",
+                'Me responda "SIM" para confirmar esses lançamentos, ou me diga o que precisa ajustar.',
+            ])
+        elif credit_entries or debit_entries:
+            if credit_entries:
+                lines.extend(["", f"Creditos identificados ({len(credit_entries)} no total):"])
+                for entry in credit_entries[:10]:
+                    prefix = f"{entry['date']} - " if entry.get("date") else ""
+                    lines.append(f"- {prefix}{entry['description']}: R${entry['amount']:.2f}")
+                if len(credit_entries) > 10:
+                    lines.append(f"- ...e mais {len(credit_entries) - 10} lancamentos de credito.")
+            if debit_entries:
+                lines.extend(["", f"Debitos identificados ({len(debit_entries)} no total):"])
+                for entry in debit_entries[:10]:
+                    prefix = f"{entry['date']} - " if entry.get("date") else ""
+                    lines.append(f"- {prefix}{entry['description']}: R${entry['amount']:.2f}")
+                if len(debit_entries) > 10:
+                    lines.append(f"- ...e mais {len(debit_entries) - 10} lancamentos de debito.")
     elif document_type == "fatura_cartao":
         lines.append("Recebi sua fatura e ja extraí alguns dados importantes.")
         if invoice_total is not None:
