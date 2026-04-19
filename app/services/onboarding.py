@@ -855,6 +855,21 @@ def has_cost_review_candidates(user_id: int) -> bool:
     return bool(fixed_costs or variable_costs)
 
 
+def is_statement_already_reviewed(user_id: int) -> bool:
+    """Return True if the user already confirmed their extrato in STATEMENT_REVIEW_PENDING."""
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            """
+            SELECT 1 FROM documentos_financeiros
+            WHERE user_id = %s AND tipo_documento = 'extrato'
+              AND revisado = TRUE
+            LIMIT 1
+            """,
+            (user_id,),
+        )
+        return cursor.fetchone() is not None
+
+
 def is_cost_review_completed(user_id: int) -> bool:
     with get_cursor() as (_, cursor):
         if not _column_exists(cursor, "configuracoes_usuario", "custos_onboarding_concluido"):

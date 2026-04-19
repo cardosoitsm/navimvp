@@ -1828,6 +1828,25 @@ def save_extrato_adjustments(user_id: int, updated_rows: list[dict[str, Any]]) -
         conn.commit()
 
 
+def mark_extrato_reviewed(user_id: int) -> None:
+    """Mark the latest extrato document as reviewed by the user."""
+    with get_cursor() as (conn, cursor):
+        cursor.execute(
+            """
+            UPDATE documentos_financeiros
+            SET revisado = TRUE
+            WHERE id = (
+                SELECT id FROM documentos_financeiros
+                WHERE user_id = %s AND tipo_documento = 'extrato'
+                ORDER BY created_at DESC
+                LIMIT 1
+            )
+            """,
+            (user_id,),
+        )
+        conn.commit()
+
+
 def is_document_processing(user_id: int) -> bool:
     with get_cursor() as (_, cursor):
         cursor.execute(

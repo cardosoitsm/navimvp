@@ -45,6 +45,7 @@ from app.services.documents import (
     is_invoice_followup_message,
     is_document_onboarding_completed,
     is_waiting_for_document,
+    mark_extrato_reviewed,
     process_stored_document,
     register_received_document,
     save_extrato_adjustments,
@@ -95,6 +96,7 @@ from app.services.onboarding import (
     is_confirmation_no,
     is_confirmation_yes,
     is_cost_review_completed,
+    is_statement_already_reviewed,
     parse_card_count,
     parse_card_names_llm_first,
     parse_balance_message,
@@ -324,6 +326,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
         if is_confirmation_yes(msg_lower):
+            mark_extrato_reviewed(user_id)
             set_onboarding_state(user_id, BUDGET_SETUP_PENDING)
             resposta = (
                 "Ótimo! Lançamentos confirmados.\n\n"
@@ -454,6 +457,14 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         is_post_cards = bool(existing_card_names)
         if is_post_cards and is_document_processing(user_id):
             resposta = "Ainda estou processando sua fatura, aguarde um momento..."
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        if not is_post_cards and is_statement_already_reviewed(user_id):
+            set_onboarding_state(user_id, CARD_COUNT_PENDING)
+            resposta = (
+                "Seus lançamentos já foram organizados. Seguindo em frente...\n\n"
+                f"{card_count_prompt()}"
+            )
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
         if is_post_cards:

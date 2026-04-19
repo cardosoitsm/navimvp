@@ -245,6 +245,10 @@ SCHEMA_STATEMENTS = (
     ALTER TABLE custos_mensais
     ADD COLUMN IF NOT EXISTS subcategoria VARCHAR(100) NULL
     """,
+    """
+    ALTER TABLE documentos_financeiros
+    ADD COLUMN IF NOT EXISTS revisado BOOLEAN NOT NULL DEFAULT FALSE
+    """,
 )
 
 
