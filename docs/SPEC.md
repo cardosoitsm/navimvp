@@ -528,6 +528,28 @@ Solicitada quando a mensagem **não** tem simultaneamente: verbo de transação 
 
 ---
 
+## Estratégia de Internacionalização (i18n)
+
+O Navi foi projetado desde o início para suportar múltiplos idiomas sem exigir código específico por idioma.
+
+### Princípio central
+A responsabilidade de acentuação e ortografia está no GPT, não em normalização pós-resposta. O código não deve conter listas de palavras de nenhum idioma específico.
+
+### Implementação atual
+- Coluna `locale VARCHAR(10) DEFAULT 'pt-BR'` na tabela `usuarios`.
+- Em cada chamada ao GPT, o locale do usuário é passado via instrução no prompt system: `"Idioma do usuário: {locale}. Retorne todas as strings com ortografia e acentuação CORRETAS desse idioma."`
+- GPT lida nativamente com acentuação correta quando instruído — sem pós-processamento no backend.
+
+### Expansão para novo idioma
+Para suportar `es-ES`, `fr-FR`, `en-US` ou outro locale: basta permitir o novo valor no campo `locale` e documentar. Nenhuma linha de código no backend precisa mudar.
+
+### O que NÃO fazer
+- Não adicionar mapas hardcoded de palavras por idioma (ex: `alimentacao → alimentação`).
+- Não criar funções de normalização de acentos dependentes de idioma específico.
+- Se o GPT errar acentuação ocasionalmente em MVP, a solução é ajustar o prompt — não normalizar pós-resposta.
+
+---
+
 ## Variáveis de Ambiente
 
 | Variável | Descrição | Default |

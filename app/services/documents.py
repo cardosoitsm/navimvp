@@ -15,7 +15,8 @@ from starlette.datastructures import FormData
 
 from app.config import get_settings
 from app.db import get_cursor
-from app.services.formatting import format_brl, format_ptbr_date, normalize_ptbr_accents
+from app.services.formatting import format_brl, format_ptbr_date
+from app.services.users import get_user_locale
 from app.services.logger import get_logger
 from app.services.onboarding import (
     CARD_INVOICE_PENDING,
@@ -333,9 +334,8 @@ def _normalize_statement_rows(rows: Any) -> list[dict[str, Any]]:
 
         tipo_custo_raw = str(row.get("tipo_custo") or "").strip().lower()
         tipo_custo = tipo_custo_raw if tipo_custo_raw in {"fixo", "variavel", "rendimento", "credito"} else "variavel"
-        categoria_sugerida = normalize_ptbr_accents(str(row.get("categoria_sugerida") or "Outros").strip() or "Outros")
-        subcategoria_raw = str(row.get("subcategoria_sugerida") or "").strip()
-        subcategoria_sugerida = normalize_ptbr_accents(subcategoria_raw) if subcategoria_raw else None
+        categoria_sugerida = str(row.get("categoria_sugerida") or "Outros").strip() or "Outros"
+        subcategoria_sugerida = str(row.get("subcategoria_sugerida") or "").strip() or None
 
         normalized_rows.append(
             {
@@ -711,9 +711,11 @@ def _get_categories_for_prompt() -> str:
         return ""
 
 
-def _build_document_analysis_system_prompt(income_instructions: str, hinted_type: str) -> str:
+def _build_document_analysis_system_prompt(income_instructions: str, hinted_type: str, user_locale: str = "pt-BR") -> str:
     categories_hint = _get_categories_for_prompt()
     base = (
+        f"Idioma do usuário: {user_locale}. "
+        "Retorne TODAS as strings (categorias, subcategorias, descrições resumidas) com ortografia e acentuação CORRETAS desse idioma. "
         "Voce analisa documentos financeiros e retorna TODOS os lancamentos encontrados, sem excecao. "
         "Nao filtre por tipo, valor ou categoria — creditos, debitos, valores minimos, lancamentos sem categoria clara — TODOS devem ser retornados em statement_rows. "
         "Retorne apenas JSON valido com este formato: "
@@ -733,7 +735,7 @@ def _build_document_analysis_system_prompt(income_instructions: str, hinted_type
         '"account_limit":numero ou null,'
         '"pending_charges":numero ou null,'
         '"charges_debit_date":"YYYY-MM-DD" ou null,'
-        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"texto EXATAMENTE como no documento","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low","tipo_custo":"fixo|variavel|rendimento|credito","categoria_sugerida":"nome da categoria COM acentuacao PT-BR correta (ex: Alimentação, Educação, Automóvel, Condomínio) ou Outros","subcategoria_sugerida":"subcategoria especifica COM acentuacao PT-BR correta ou null","confirmado":false}] — INCLUA ABSOLUTAMENTE TODOS os lancamentos sem filtrar,'
+        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"texto EXATAMENTE como no documento","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low","tipo_custo":"fixo|variavel|rendimento|credito","categoria_sugerida":"nome da categoria com acentuação correta no idioma do usuário ou Outros","subcategoria_sugerida":"subcategoria especifica com acentuação correta no idioma do usuário ou null","confirmado":false}] — INCLUA ABSOLUTAMENTE TODOS os lancamentos sem filtrar,'
         '"credit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}] (TODOS os creditos: remuneracao de aplicacao, rendimento, estorno, transferencia — mesmo R$0,01),'
         '"debit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}] (TODOS os debitos: cartao de debito, PIX enviado, tarifa, compra — mesmo valores pequenos),'
         '"estimated_fixed_expenses":numero ou null,'
@@ -1261,6 +1263,7 @@ def _extract_document_analysis(
     media_content_type: str,
     media_bytes: bytes,
     hinted_type: str,
+    user_locale: str = "pt-BR",
 ) -> dict[str, Any] | None:
     settings = get_settings()
     if media_content_type not in SUPPORTED_MEDIA_TYPES:
@@ -1269,7 +1272,7 @@ def _extract_document_analysis(
         return None
 
     income_instructions = _income_detection_instructions(hinted_type)
-    system_content = _build_document_analysis_system_prompt(income_instructions, hinted_type)
+    system_content = _build_document_analysis_system_prompt(income_instructions, hinted_type, user_locale)
 
     if media_content_type == "application/pdf":
         # ETAPA 1: Extract ALL pages locally — no page limit, fresh extraction every time
@@ -1689,9 +1692,10 @@ def process_received_document(user_id: int, media_url: str, media_content_type: 
             "Vou guardar essa referência para as próximas evoluções."
         )
 
+    user_locale = get_user_locale(user_id)
     try:
         media_bytes = _download_media_bytes(media_url)
-        analysis = _extract_document_analysis(message_text, media_content_type, media_bytes, hinted_type)
+        analysis = _extract_document_analysis(message_text, media_content_type, media_bytes, hinted_type, user_locale)
     except Exception:
         analysis = None
 
@@ -1735,6 +1739,7 @@ def apply_user_adjustments(
         f'{"/" + r["subcategoria_sugerida"] if r.get("subcategoria_sugerida") else ""})'
         for i, r in enumerate(rows)
     )
+    user_locale = get_user_locale(user_id) if user_id is not None else "pt-BR"
     client = OpenAI(api_key=settings.openai_api_key)
     gpt_content: str = "[]"
     try:
@@ -1744,11 +1749,13 @@ def apply_user_adjustments(
                 {
                     "role": "system",
                     "content": (
+                        f"Idioma do usuário: {user_locale}. "
+                        "Retorne todas as strings (categoria, subcategoria) com ortografia e acentuação CORRETAS desse idioma. "
                         "Voce recebe uma lista numerada de lancamentos financeiros e uma mensagem do usuario com ajustes. "
                         "Retorne APENAS um array JSON valido, sem markdown, sem texto explicativo, sem objeto envolvente. "
                         "Formato exato: "
                         '[{"indice":N,"acao":"atualizar"|"ignorar",'
-                        '"categoria":"nova categoria COM acentuacao PT-BR correta (ex: Alimentação, Saúde) ou null","subcategoria":"nova subcategoria COM acentuacao PT-BR correta ou null",'
+                        '"categoria":"nova categoria ou null","subcategoria":"nova subcategoria ou null",'
                         '"tipo_custo":"fixo|variavel|rendimento|credito ou null"}]. '
                         "Use 'ignorar' para descartar o lancamento da lista. "
                         "Identifique o lancamento pelo numero (indice) ou por palavras da descricao. "
@@ -1793,10 +1800,9 @@ def apply_user_adjustments(
             applied += 1
             continue
         if adj.get("categoria"):
-            updated[idx]["categoria_sugerida"] = normalize_ptbr_accents(str(adj["categoria"]).strip())
+            updated[idx]["categoria_sugerida"] = str(adj["categoria"]).strip()
         if "subcategoria" in adj and adj["subcategoria"] is not None:
-            sub = str(adj["subcategoria"]).strip()
-            updated[idx]["subcategoria_sugerida"] = normalize_ptbr_accents(sub) if sub else None
+            updated[idx]["subcategoria_sugerida"] = str(adj["subcategoria"]).strip() or None
         if adj.get("tipo_custo") and adj["tipo_custo"] in {"fixo", "variavel", "rendimento", "credito"}:
             updated[idx]["tipo_custo"] = adj["tipo_custo"]
         applied += 1
@@ -1907,9 +1913,10 @@ def process_stored_document(
     on_complete_state: str | None = None,
 ) -> None:
     logger.info("doc_processing_start document_id=%d user_id=%d type=%s", document_id, user_id, hinted_type)
+    user_locale = get_user_locale(user_id)
     try:
         media_bytes = _download_media_bytes(media_url)
-        analysis = _extract_document_analysis(message_text, media_content_type, media_bytes, hinted_type)
+        analysis = _extract_document_analysis(message_text, media_content_type, media_bytes, hinted_type, user_locale)
     except Exception:
         logger.exception("doc_processing_error document_id=%d user_id=%d", document_id, user_id)
         analysis = None

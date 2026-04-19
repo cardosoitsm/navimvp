@@ -249,6 +249,10 @@ SCHEMA_STATEMENTS = (
     ALTER TABLE documentos_financeiros
     ADD COLUMN IF NOT EXISTS revisado BOOLEAN NOT NULL DEFAULT FALSE
     """,
+    """
+    ALTER TABLE usuarios
+    ADD COLUMN IF NOT EXISTS locale VARCHAR(10) NOT NULL DEFAULT 'pt-BR'
+    """,
 )
 
 

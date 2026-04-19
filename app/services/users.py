@@ -96,6 +96,13 @@ def authenticate_user(email: str, senha: str) -> int:
     return int(user_id)
 
 
+def get_user_locale(user_id: int) -> str:
+    with get_cursor() as (_, cursor):
+        cursor.execute("SELECT locale FROM usuarios WHERE id = %s", (user_id,))
+        result = cursor.fetchone()
+    return str(result[0]) if result and result[0] else "pt-BR"
+
+
 def delete_user_account(email: str) -> bool:
     with get_cursor() as (conn, cursor):
         try:
