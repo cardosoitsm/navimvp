@@ -1659,13 +1659,36 @@ def process_stored_document(
         if on_complete_numero:
             from app.services.onboarding import set_onboarding_state
             from app.services.twilio import responder
+            import time as _time
             if on_complete_state:
                 set_onboarding_state(user_id, on_complete_state)
             proactive_msg = _build_analysis_message(analysis, hinted_type)
-            try:
-                responder(on_complete_numero, proactive_msg)
-            except Exception:
-                logger.exception("doc_proactive_send_error document_id=%d user_id=%d", document_id, user_id)
+            logger.info(
+                "doc_proactive_attempt document_id=%d user_id=%d numero=%s msg_len=%d",
+                document_id, user_id, on_complete_numero, len(proactive_msg),
+            )
+            _sent = False
+            for _attempt, _delay in enumerate([0, 1, 2], 1):
+                if _delay:
+                    _time.sleep(_delay)
+                try:
+                    responder(on_complete_numero, proactive_msg)
+                    logger.info(
+                        "doc_proactive_ok document_id=%d user_id=%d attempt=%d",
+                        document_id, user_id, _attempt,
+                    )
+                    _sent = True
+                    break
+                except Exception:
+                    logger.exception(
+                        "doc_proactive_error document_id=%d user_id=%d attempt=%d",
+                        document_id, user_id, _attempt,
+                    )
+            if not _sent:
+                logger.error(
+                    "doc_proactive_all_attempts_failed document_id=%d user_id=%d",
+                    document_id, user_id,
+                )
     else:
         logger.warning("doc_processing_no_analysis document_id=%d user_id=%d", document_id, user_id)
 
