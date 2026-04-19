@@ -1545,6 +1545,40 @@ def _persist_financial_context(user_id: int, analysis: dict[str, Any], card_id: 
         conn.commit()
 
 
+def _render_statement_rows(rows: list[dict[str, Any]]) -> list[str]:
+    """Render statement_rows as display lines, including header and call-to-action.
+
+    Returns an empty list when rows is empty so callers can extend unconditionally.
+    Prepends a blank separator line when non-empty.
+    """
+    if not rows:
+        return []
+    result: list[str] = ["", f"Lançamentos encontrados ({len(rows)} no total):"]
+    for row in rows[:20]:
+        date_prefix = f"{row['date']} " if row.get("date") else ""
+        if row.get("credit") is not None:
+            valor_str = f"+R${row['credit']:.2f}"
+        elif row.get("debit") is not None:
+            valor_str = f"-R${row['debit']:.2f}"
+        else:
+            valor_str = ""
+        tipo = row.get("tipo_custo") or ""
+        cat = row.get("categoria_sugerida") or ""
+        subcat = row.get("subcategoria_sugerida") or ""
+        cat_display = f"{cat}/{subcat}" if cat and subcat else cat
+        meta = " | ".join(part for part in [tipo, cat_display] if part)
+        suffix = f" ({meta})" if meta else ""
+        val_part = f": {valor_str}" if valor_str else ""
+        result.append(f"- {date_prefix}{row['description']}{val_part}{suffix}")
+    if len(rows) > 20:
+        result.append(f"- ...e mais {len(rows) - 20} lançamentos.")
+    result.extend([
+        "",
+        'Me responda "SIM" para confirmar esses lançamentos, ou me diga o que precisa ajustar.',
+    ])
+    return result
+
+
 def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str:
     document_type = analysis.get("document_type") or fallback_type
     summary = (analysis.get("summary") or "").strip()
@@ -1595,31 +1629,8 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
                 formatted_charges_date = format_ptbr_date(charges_debit_date) or charges_debit_date
                 lines.append(f"- data prevista de debito dos encargos: {formatted_charges_date}")
 
-        # List ALL transactions with exact descriptions, tipo_custo and categoria_sugerida
         if statement_rows:
-            lines.extend(["", f"Lançamentos encontrados ({len(statement_rows)} no total):"])
-            for row in statement_rows[:20]:
-                date_prefix = f"{row['date']} " if row.get("date") else ""
-                if row.get("credit") is not None:
-                    valor_str = f"+R${row['credit']:.2f}"
-                elif row.get("debit") is not None:
-                    valor_str = f"-R${row['debit']:.2f}"
-                else:
-                    valor_str = ""
-                tipo = row.get("tipo_custo") or ""
-                cat = row.get("categoria_sugerida") or ""
-                subcat = row.get("subcategoria_sugerida") or ""
-                cat_display = f"{cat}/{subcat}" if cat and subcat else cat
-                meta = " | ".join(part for part in [tipo, cat_display] if part)
-                suffix = f" ({meta})" if meta else ""
-                val_part = f": {valor_str}" if valor_str else ""
-                lines.append(f"- {date_prefix}{row['description']}{val_part}{suffix}")
-            if len(statement_rows) > 20:
-                lines.append(f"- ...e mais {len(statement_rows) - 20} lançamentos.")
-            lines.extend([
-                "",
-                'Me responda "SIM" para confirmar esses lançamentos, ou me diga o que precisa ajustar.',
-            ])
+            lines.extend(_render_statement_rows(statement_rows))
         elif credit_entries or debit_entries:
             if credit_entries:
                 lines.extend(["", f"Créditos identificados ({len(credit_entries)} no total):"])
@@ -1636,7 +1647,11 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
                 if len(debit_entries) > 10:
                     lines.append(f"- ...e mais {len(debit_entries) - 10} lançamentos de débito.")
     elif document_type == "fatura_cartao":
-        lines.append("Recebi sua fatura e já extraí alguns dados importantes.")
+        total_lancamentos = len(statement_rows)
+        if total_lancamentos > 0:
+            lines.append(f"Recebi sua fatura e encontrei {total_lancamentos} lançamentos.")
+        else:
+            lines.append("Recebi sua fatura e já extraí alguns dados importantes.")
         if invoice_total is not None:
             lines.append(f"- valor total da fatura: {format_brl(invoice_total)}")
         if due_date:
@@ -1655,6 +1670,7 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
                     lines.append(f"- melhor dia para compras: dia {day}")
             except (TypeError, ValueError):
                 pass
+        lines.extend(_render_statement_rows(statement_rows))
     else:
         lines.append("Recebi seu documento financeiro e consegui registrar algumas informações iniciais.")
 
@@ -1679,7 +1695,12 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
             "Vou usar essas informações para deixar meus alertas financeiros mais inteligentes.",
         ]
     )
-    return "\n".join(lines)
+    msg = "\n".join(lines)
+    rows_count = len(statement_rows)
+    logger.info("build_analysis_message doc_type=%s rows_count=%d msg_len=%d", document_type, rows_count, len(msg))
+    if rows_count > 0 and len(msg) < 500:
+        logger.warning("build_analysis_message_short doc_type=%s rows_count=%d msg_len=%d — possible rendering bug", document_type, rows_count, len(msg))
+    return msg
 
 
 def process_received_document(user_id: int, media_url: str, media_content_type: str, message_text: str) -> str:
