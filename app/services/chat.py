@@ -88,7 +88,7 @@ def _extract_transactions_from_ai(text: str) -> list[ParsedTransaction]:
                     'Classifique a mensagem:\n\n'
                     f'"{text}"\n\n'
                     "Retorne uma lista de objetos no formato:\n"
-                    '[{"tipo":"receita ou despesa","categoria":"categoria","valor":numero}]'
+                    '[{"tipo":"receita ou despesa","categoria":"categoria","subcategoria":"subcategoria especifica ou null","valor":numero}]'
                 ),
             },
         ],
@@ -111,7 +111,8 @@ def _normalize_transaction(text: str, transaction: ParsedTransaction) -> Pending
     categoria_regra = classificar_categoria(text)
     categoria = categoria_regra or _normalizar_texto(transaction.categoria or "outros")
     tipo = _normalizar_texto(transaction.tipo or "despesa")
-    return PendingTransaction(tipo=tipo, categoria=categoria, valor=float(transaction.valor))
+    subcategoria = transaction.subcategoria.strip() if transaction.subcategoria else None
+    return PendingTransaction(tipo=tipo, categoria=categoria, subcategoria=subcategoria, valor=float(transaction.valor))
 
 
 def _build_confirmation_message(transaction: PendingTransaction) -> str:
@@ -169,13 +170,14 @@ def process_user_message(text: str, user_id: int) -> dict[str, str]:
         for transaction in normalized_transactions:
             cursor.execute(
                 """
-                INSERT INTO transacoes (tipo, categoria, valor, user_id)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO transacoes (tipo, categoria, subcategoria, valor, user_id)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
-                (transaction.tipo, transaction.categoria, transaction.valor, user_id),
+                (transaction.tipo, transaction.categoria, transaction.subcategoria, transaction.valor, user_id),
             )
 
-            respostas.append(f"- {transaction.categoria}: {format_brl(transaction.valor)}")
+            cat_display = f"{transaction.categoria}/{transaction.subcategoria}" if transaction.subcategoria else transaction.categoria
+            respostas.append(f"- {cat_display}: {format_brl(transaction.valor)}")
             ultima_categoria = transaction.categoria
 
         conn.commit()
