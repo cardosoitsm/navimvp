@@ -249,7 +249,7 @@ def clear_pending_confirmation(user_id: int) -> None:
 def confirm_pending_transaction(user_id: int) -> dict[str, str]:
     pending = get_pending_confirmation(user_id)
     if not pending:
-        raise HTTPException(status_code=404, detail="Nao encontrei nenhuma transacao pendente para confirmar.")
+        raise HTTPException(status_code=404, detail="Não encontrei nenhuma transação pendente para confirmar.")
 
     with get_cursor() as (conn, cursor):
         cursor.execute(
@@ -264,7 +264,7 @@ def confirm_pending_transaction(user_id: int) -> dict[str, str]:
 
     cat_display = f"{pending.categoria}/{pending.subcategoria}" if pending.subcategoria else pending.categoria
     resposta = (
-        "Transacao confirmada:\n\n"
+        "Transação confirmada:\n\n"
         f"- {cat_display}: R${pending.valor:.2f}"
     )
     budget_feedback = build_budget_feedback(user_id, pending.categoria)
@@ -277,7 +277,7 @@ def confirm_pending_transaction(user_id: int) -> dict[str, str]:
 def reject_pending_transaction(user_id: int) -> str:
     pending = get_pending_confirmation(user_id)
     if not pending:
-        return "Nao encontrei nenhuma transacao pendente para cancelar."
+        return "Não encontrei nenhuma transação pendente para cancelar."
 
     clear_pending_confirmation(user_id)
-    return "Tudo bem. Nao registrei a transacao. Me envie a correcao quando quiser."
+    return "Tudo bem. Não registrei a transação. Me envie a correção quando quiser."
