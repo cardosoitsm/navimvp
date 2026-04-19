@@ -425,6 +425,10 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
 
     if onboarding_state == COST_REVIEW_PENDING:
         is_post_cards = bool(existing_card_names)
+        if is_post_cards and is_document_processing(user_id):
+            resposta = "Ainda estou processando sua fatura, aguarde um momento..."
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
         if is_post_cards:
             fixed_costs, variable_costs = infer_invoice_cost_candidates(user_id)
         else:
@@ -612,29 +616,26 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 return Response(content=build_twiml(resposta), media_type="application/xml")
 
             if incoming_media:
-                _register_document_upload("fatura_cartao")
                 next_card = advance_card_progress(user_id)
                 if next_card:
+                    _register_document_upload("fatura_cartao")
                     resposta = (
                         f"Perfeito. Já deixei a fatura do {current_card['nome_cartao']} salva por aqui.\n\n"
                         "Isso já me ajuda a acompanhar melhor esse cartão e a deixar sua base financeira mais redonda.\n\n"
                         f"Agora me manda a fatura atual do {next_card['nome_cartao']}."
                     )
                 else:
-                    set_onboarding_state(user_id, COST_REVIEW_PENDING)
-                    invoice_fixed, invoice_variable = infer_invoice_cost_candidates(user_id)
                     card_name_display = str(current_card["nome_cartao"])
-                    if invoice_fixed or invoice_variable:
-                        resposta = (
-                            f"Perfeito. Já deixei a fatura do {card_name_display} salva por aqui.\n\n"
-                            f"{cost_review_prompt(invoice_fixed, invoice_variable)}"
-                        )
-                    else:
-                        resposta = (
-                            f"Perfeito. Já deixei a fatura do {card_name_display} salva por aqui.\n\n"
-                            "Estou analisando os lançamentos em segundo plano. "
-                            "Me responda qualquer coisa para eu te mostrar o que identifiquei."
-                        )
+                    set_onboarding_state(user_id, COST_REVIEW_PENDING)
+                    _register_document_upload(
+                        "fatura_cartao",
+                        on_complete_numero=numero,
+                    )
+                    resposta = (
+                        f"Recebi sua fatura do {card_name_display}. "
+                        "Estou analisando os lançamentos agora, isso leva alguns instantes...\n\n"
+                        "Assim que terminar, te mando o que identifiquei."
+                    )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
 
             if should_skip_document_onboarding(mensagem):
