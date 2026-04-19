@@ -215,17 +215,52 @@ def _normalize_statement_entries(entries: Any) -> list[dict[str, Any]]:
     return normalized_entries
 
 
+_NON_TRANSACTION_EXACT = frozenset({
+    "total",
+    "subtotal",
+    "saldo",
+})
+
+_NON_TRANSACTION_PREFIXES = (
+    "saldo anterior",
+    "saldo atual",
+    "saldo disponivel",
+    "saldo do periodo",
+    "saldo do dia",
+    "saldo inicial",
+    "saldo final",
+    "saldo em ",
+    "saldo periodo",
+)
+
+
+def _ascii_lower(text: str) -> str:
+    return unicodedata.normalize("NFKD", text.lower()).encode("ascii", "ignore").decode("ascii")
+
+
+def _is_non_transactional(description: str) -> bool:
+    d = _ascii_lower(description)
+    if d in _NON_TRANSACTION_EXACT:
+        return True
+    return any(d.startswith(prefix) for prefix in _NON_TRANSACTION_PREFIXES)
+
+
 def _normalize_statement_rows(rows: Any) -> list[dict[str, Any]]:
     if not isinstance(rows, list):
         return []
 
     normalized_rows: list[dict[str, Any]] = []
+    filtered_count = 0
     for row in rows[:200]:
         if not isinstance(row, dict):
             continue
 
         description = str(row.get("description") or "").strip()
         if not description:
+            continue
+
+        if _is_non_transactional(description):
+            filtered_count += 1
             continue
 
         credit = _safe_float(row.get("credit"))
@@ -263,6 +298,9 @@ def _normalize_statement_rows(rows: Any) -> list[dict[str, Any]]:
                 "confirmado": False,
             }
         )
+
+    if filtered_count:
+        logger.info("doc_filtered_non_transactions count=%d", filtered_count)
 
     return normalized_rows
 
