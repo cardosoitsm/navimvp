@@ -1318,7 +1318,7 @@ def _extract_document_analysis(
 
 def _update_document_analysis(document_id: int, analysis: dict[str, Any] | None) -> None:
     payload = json.dumps(analysis, ensure_ascii=False) if analysis else None
-    status = "processado" if analysis else "recebido"
+    status = "processado" if analysis else "falha"
     with get_cursor() as (conn, cursor):
         cursor.execute(
             """
@@ -1598,6 +1598,40 @@ def process_received_document(user_id: int, media_url: str, media_content_type: 
     return _build_analysis_message(analysis, hinted_type)
 
 
+def is_document_processing(user_id: int) -> bool:
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            """
+            SELECT 1 FROM documentos_financeiros
+            WHERE user_id = %s AND status_processamento = 'recebido'
+            LIMIT 1
+            """,
+            (user_id,),
+        )
+        return cursor.fetchone() is not None
+
+
+def get_latest_extrato_analysis(user_id: int) -> dict[str, Any] | None:
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            """
+            SELECT extracted_json FROM documentos_financeiros
+            WHERE user_id = %s AND tipo_documento = 'extrato'
+              AND extracted_json IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        )
+        row = cursor.fetchone()
+    if not row:
+        return None
+    try:
+        return json.loads(row[0])
+    except Exception:
+        return None
+
+
 def process_stored_document(
     document_id: int,
     user_id: int,
@@ -1606,6 +1640,8 @@ def process_stored_document(
     message_text: str,
     hinted_type: str,
     card_id: int | None = None,
+    on_complete_numero: str | None = None,
+    on_complete_state: str | None = None,
 ) -> None:
     logger.info("doc_processing_start document_id=%d user_id=%d type=%s", document_id, user_id, hinted_type)
     try:
@@ -1620,6 +1656,16 @@ def process_stored_document(
     if analysis:
         _persist_financial_context(user_id, analysis, card_id)
         logger.info("doc_processing_done document_id=%d user_id=%d", document_id, user_id)
+        if on_complete_numero:
+            from app.services.onboarding import set_onboarding_state
+            from app.services.twilio import responder
+            if on_complete_state:
+                set_onboarding_state(user_id, on_complete_state)
+            proactive_msg = _build_analysis_message(analysis, hinted_type)
+            try:
+                responder(on_complete_numero, proactive_msg)
+            except Exception:
+                logger.exception("doc_proactive_send_error document_id=%d user_id=%d", document_id, user_id)
     else:
         logger.warning("doc_processing_no_analysis document_id=%d user_id=%d", document_id, user_id)
 
