@@ -161,6 +161,15 @@ def healthcheck() -> dict[str, str]:
     return {"status": status, "environment": settings.app_env, "database": db_status}
 
 
+@app.post("/debug/test-responder")
+def debug_test_responder(numero: str, mensagem: str) -> dict[str, str]:
+    try:
+        responder(numero, mensagem)
+        return {"status": "ok", "to": numero}
+    except Exception as exc:
+        return {"status": "error", "to": numero, "detail": str(exc)}
+
+
 @app.post("/webhook")
 async def webhook(request: Request, background_tasks: BackgroundTasks) -> Response:
     form = await request.form()
