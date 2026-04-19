@@ -15,7 +15,7 @@ from starlette.datastructures import FormData
 
 from app.config import get_settings
 from app.db import get_cursor
-from app.services.formatting import format_brl, format_ptbr_date
+from app.services.formatting import format_brl, format_ptbr_date, normalize_ptbr_accents
 from app.services.logger import get_logger
 from app.services.onboarding import (
     CARD_INVOICE_PENDING,
@@ -333,8 +333,9 @@ def _normalize_statement_rows(rows: Any) -> list[dict[str, Any]]:
 
         tipo_custo_raw = str(row.get("tipo_custo") or "").strip().lower()
         tipo_custo = tipo_custo_raw if tipo_custo_raw in {"fixo", "variavel", "rendimento", "credito"} else "variavel"
-        categoria_sugerida = str(row.get("categoria_sugerida") or "Outros").strip() or "Outros"
-        subcategoria_sugerida = str(row.get("subcategoria_sugerida") or "").strip() or None
+        categoria_sugerida = normalize_ptbr_accents(str(row.get("categoria_sugerida") or "Outros").strip() or "Outros")
+        subcategoria_raw = str(row.get("subcategoria_sugerida") or "").strip()
+        subcategoria_sugerida = normalize_ptbr_accents(subcategoria_raw) if subcategoria_raw else None
 
         normalized_rows.append(
             {
@@ -732,7 +733,7 @@ def _build_document_analysis_system_prompt(income_instructions: str, hinted_type
         '"account_limit":numero ou null,'
         '"pending_charges":numero ou null,'
         '"charges_debit_date":"YYYY-MM-DD" ou null,'
-        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"texto EXATAMENTE como no documento","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low","tipo_custo":"fixo|variavel|rendimento|credito","categoria_sugerida":"nome da categoria ou Outros","subcategoria_sugerida":"subcategoria especifica ou null","confirmado":false}] — INCLUA ABSOLUTAMENTE TODOS os lancamentos sem filtrar,'
+        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"texto EXATAMENTE como no documento","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low","tipo_custo":"fixo|variavel|rendimento|credito","categoria_sugerida":"nome da categoria COM acentuacao PT-BR correta (ex: Alimentação, Educação, Automóvel, Condomínio) ou Outros","subcategoria_sugerida":"subcategoria especifica COM acentuacao PT-BR correta ou null","confirmado":false}] — INCLUA ABSOLUTAMENTE TODOS os lancamentos sem filtrar,'
         '"credit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}] (TODOS os creditos: remuneracao de aplicacao, rendimento, estorno, transferencia — mesmo R$0,01),'
         '"debit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}] (TODOS os debitos: cartao de debito, PIX enviado, tarifa, compra — mesmo valores pequenos),'
         '"estimated_fixed_expenses":numero ou null,'
@@ -1747,7 +1748,7 @@ def apply_user_adjustments(
                         "Retorne APENAS um array JSON valido, sem markdown, sem texto explicativo, sem objeto envolvente. "
                         "Formato exato: "
                         '[{"indice":N,"acao":"atualizar"|"ignorar",'
-                        '"categoria":"nova categoria ou null","subcategoria":"nova subcategoria ou null",'
+                        '"categoria":"nova categoria COM acentuacao PT-BR correta (ex: Alimentação, Saúde) ou null","subcategoria":"nova subcategoria COM acentuacao PT-BR correta ou null",'
                         '"tipo_custo":"fixo|variavel|rendimento|credito ou null"}]. '
                         "Use 'ignorar' para descartar o lancamento da lista. "
                         "Identifique o lancamento pelo numero (indice) ou por palavras da descricao. "
@@ -1792,9 +1793,10 @@ def apply_user_adjustments(
             applied += 1
             continue
         if adj.get("categoria"):
-            updated[idx]["categoria_sugerida"] = str(adj["categoria"]).strip()
+            updated[idx]["categoria_sugerida"] = normalize_ptbr_accents(str(adj["categoria"]).strip())
         if "subcategoria" in adj and adj["subcategoria"] is not None:
-            updated[idx]["subcategoria_sugerida"] = str(adj["subcategoria"]).strip() or None
+            sub = str(adj["subcategoria"]).strip()
+            updated[idx]["subcategoria_sugerida"] = normalize_ptbr_accents(sub) if sub else None
         if adj.get("tipo_custo") and adj["tipo_custo"] in {"fixo", "variavel", "rendimento", "credito"}:
             updated[idx]["tipo_custo"] = adj["tipo_custo"]
         applied += 1
