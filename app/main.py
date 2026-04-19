@@ -418,7 +418,10 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             return Response(content=build_twiml(resposta), media_type="application/xml")
         budgets = parse_budget_message(mensagem)
         if budgets:
-            next_state = COST_REVIEW_PENDING if has_cost_review_candidates(user_id) and not is_cost_review_completed(user_id) else CARD_COUNT_PENDING
+            _reviewed = is_statement_already_reviewed(user_id)
+            next_state = COST_REVIEW_PENDING if has_cost_review_candidates(user_id) and not is_cost_review_completed(user_id) and not _reviewed else CARD_COUNT_PENDING
+            if _reviewed and next_state == CARD_COUNT_PENDING:
+                logger.info("cost_review_skipped_already_reviewed user_id=%s", user_id)
             save_budgets(user_id, budgets, next_state)
             if next_state == COST_REVIEW_PENDING:
                 fixed_costs, variable_costs = infer_cost_candidates(user_id)
@@ -436,7 +439,10 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             resposta = budget_edit_prompt()
             return Response(content=build_twiml(resposta), media_type="application/xml")
         if should_skip_budget_onboarding(mensagem):
-            next_state = COST_REVIEW_PENDING if has_cost_review_candidates(user_id) and not is_cost_review_completed(user_id) else CARD_COUNT_PENDING
+            _reviewed = is_statement_already_reviewed(user_id)
+            next_state = COST_REVIEW_PENDING if has_cost_review_candidates(user_id) and not is_cost_review_completed(user_id) and not _reviewed else CARD_COUNT_PENDING
+            if _reviewed and next_state == CARD_COUNT_PENDING:
+                logger.info("cost_review_skipped_already_reviewed user_id=%s", user_id)
             mark_budget_onboarding_completed(user_id, next_state)
             if next_state == COST_REVIEW_PENDING:
                 fixed_costs, variable_costs = infer_cost_candidates(user_id)
@@ -460,6 +466,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
         if not is_post_cards and is_statement_already_reviewed(user_id):
+            logger.info("cost_review_skipped_already_reviewed user_id=%s", user_id)
             set_onboarding_state(user_id, CARD_COUNT_PENDING)
             resposta = (
                 "Seus lançamentos já foram organizados. Seguindo em frente...\n\n"
