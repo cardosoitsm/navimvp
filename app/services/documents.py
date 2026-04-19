@@ -82,6 +82,56 @@ def _parse_openai_json(content: str) -> dict[str, Any]:
     return parsed
 
 
+_WRAPPER_ARRAY_KEYS = ("adjustments", "ajustes", "items", "data", "rows", "lancamentos", "result", "results")
+
+
+def _parse_openai_json_list(content: str) -> list[dict[str, Any]]:
+    """Robust parser that always returns a list, handling GPT response variations."""
+    payload = content.strip()
+
+    # Strip markdown fences
+    md_match = re.search(r"```(?:json)?\s*(.*?)\s*```", payload, re.DOTALL)
+    if md_match:
+        payload = md_match.group(1).strip()
+    elif "```" in payload:
+        parts = payload.split("```")
+        if len(parts) > 1:
+            payload = parts[1].replace("json", "", 1).strip()
+
+    # Extract JSON boundaries — find the outermost [ ] or { }
+    first_bracket = next((i for i, c in enumerate(payload) if c in ("[", "{")), None)
+    if first_bracket is not None:
+        opener = payload[first_bracket]
+        closer = "]" if opener == "[" else "}"
+        last_bracket = len(payload) - 1 - next(
+            (i for i, c in enumerate(reversed(payload)) if c == closer), -1
+        )
+        if last_bracket >= first_bracket:
+            payload = payload[first_bracket : last_bracket + 1]
+
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError:
+        logger.warning("parse_json_failed raw_content=%.500s", content)
+        return []
+
+    if isinstance(parsed, list):
+        return [item for item in parsed if isinstance(item, dict)]
+
+    if isinstance(parsed, dict):
+        for key in _WRAPPER_ARRAY_KEYS:
+            val = parsed.get(key)
+            if isinstance(val, list):
+                return [item for item in val if isinstance(item, dict)]
+        if len(parsed) == 1:
+            only_val = next(iter(parsed.values()))
+            if isinstance(only_val, list):
+                return [item for item in only_val if isinstance(item, dict)]
+
+    logger.warning("parse_json_failed raw_content=%.500s", content)
+    return []
+
+
 def _safe_float(value: Any) -> float | None:
     if value in (None, "", "null"):
         return None
@@ -1641,19 +1691,39 @@ def process_received_document(user_id: int, media_url: str, media_content_type: 
     return _build_analysis_message(analysis, hinted_type)
 
 
-def apply_user_adjustments(raw_text: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Parse natural-language adjustments from the user and apply them to existing statement rows."""
+_ADJUSTMENTS_ERROR_MSG = (
+    "Não consegui entender seus ajustes. "
+    "Você pode me enviar novamente de forma mais estruturada? "
+    'Por exemplo: "lançamento 3: categoria Alimentação, subcategoria Mercado, tipo variável"'
+)
+
+_ADJUSTMENTS_EXAMPLE = (
+    'Exemplo de saida esperada: [{"indice":2,"acao":"atualizar","categoria":"Alimentacao","subcategoria":"supermercado","tipo_custo":"variavel"},'
+    '{"indice":5,"acao":"ignorar","categoria":null,"subcategoria":null,"tipo_custo":null}]'
+)
+
+
+def apply_user_adjustments(
+    raw_text: str,
+    rows: list[dict[str, Any]],
+    user_id: int | None = None,
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Parse natural-language adjustments and apply them to statement rows.
+
+    Returns (updated_rows, error_message). error_message is None on success.
+    """
     settings = get_settings()
     if not settings.openai_api_key or not rows:
-        return rows
+        return rows, None
 
     rows_summary = "\n".join(
-        f'{i}: {r.get("date","")} {r["description"]} '
-        f'({r.get("tipo_custo","")}/{r.get("categoria_sugerida","")}'
+        f'{i}: {r.get("date", "")} {r["description"]} '
+        f'({r.get("tipo_custo", "")}/{r.get("categoria_sugerida", "")}'
         f'{"/" + r["subcategoria_sugerida"] if r.get("subcategoria_sugerida") else ""})'
         for i, r in enumerate(rows)
     )
     client = OpenAI(api_key=settings.openai_api_key)
+    gpt_content: str = "[]"
     try:
         response = client.chat.completions.create(
             model="gpt-4.1-mini",
@@ -1661,44 +1731,53 @@ def apply_user_adjustments(raw_text: str, rows: list[dict[str, Any]]) -> list[di
                 {
                     "role": "system",
                     "content": (
-                        "Voce recebe uma lista de lancamentos financeiros numerados e uma mensagem do usuario com ajustes. "
-                        "Retorne apenas JSON valido: lista de ajustes no formato "
-                        '[{"indice":numero,"acao":"atualizar|ignorar",'
+                        "Voce recebe uma lista numerada de lancamentos financeiros e uma mensagem do usuario com ajustes. "
+                        "Retorne APENAS um array JSON valido, sem markdown, sem texto explicativo, sem objeto envolvente. "
+                        "Formato exato: "
+                        '[{"indice":N,"acao":"atualizar"|"ignorar",'
                         '"categoria":"nova categoria ou null","subcategoria":"nova subcategoria ou null",'
                         '"tipo_custo":"fixo|variavel|rendimento|credito ou null"}]. '
-                        "Use 'ignorar' para descartar o lancamento. "
-                        "Identifique o lancamento pelo indice ou por palavras-chave na descricao. "
-                        "Se a mensagem nao contiver ajustes reconheciveis, retorne []."
+                        "Use 'ignorar' para descartar o lancamento da lista. "
+                        "Identifique o lancamento pelo numero (indice) ou por palavras da descricao. "
+                        "Se a mensagem nao contiver ajustes reconheciveis, retorne []. "
+                        f"{_ADJUSTMENTS_EXAMPLE}"
                     ),
                 },
                 {
                     "role": "user",
                     "content": (
                         f"Lancamentos atuais:\n{rows_summary}\n\n"
-                        f"Ajuste solicitado pelo usuario: {raw_text}"
+                        f"Ajuste solicitado: {raw_text}"
                     ),
                 },
             ],
         )
-        content = response.choices[0].message.content or "[]"
-        adjustments = _parse_openai_json(content)
-        if not isinstance(adjustments, list):
-            adjustments = []
+        gpt_content = response.choices[0].message.content or "[]"
+        adjustments = _parse_openai_json_list(gpt_content)
     except Exception:
-        logger.exception("apply_adjustments_gpt_error")
-        return rows
+        logger.exception(
+            "adjustments_failed raw_gpt_response=%.300s user_text=%.200s user_id=%s",
+            gpt_content, raw_text, user_id,
+        )
+        return rows, _ADJUSTMENTS_ERROR_MSG
+
+    if not adjustments:
+        logger.info("adjustments_applied count=0 user_id=%s", user_id)
+        return rows, None
 
     updated = [dict(r) for r in rows]
     ignored_indices: set[int] = set()
+    applied = 0
+    failed = 0
 
     for adj in adjustments:
-        if not isinstance(adj, dict):
-            continue
         idx = adj.get("indice")
         if not isinstance(idx, int) or idx < 0 or idx >= len(updated):
+            failed += 1
             continue
         if adj.get("acao") == "ignorar":
             ignored_indices.add(idx)
+            applied += 1
             continue
         if adj.get("categoria"):
             updated[idx]["categoria_sugerida"] = str(adj["categoria"]).strip()
@@ -1706,13 +1785,16 @@ def apply_user_adjustments(raw_text: str, rows: list[dict[str, Any]]) -> list[di
             updated[idx]["subcategoria_sugerida"] = str(adj["subcategoria"]).strip() or None
         if adj.get("tipo_custo") and adj["tipo_custo"] in {"fixo", "variavel", "rendimento", "credito"}:
             updated[idx]["tipo_custo"] = adj["tipo_custo"]
+        applied += 1
 
     result = [r for i, r in enumerate(updated) if i not in ignored_indices]
-    logger.info(
-        "apply_adjustments_done total=%d adjusted=%d ignored=%d",
-        len(rows), len(adjustments) - len(ignored_indices), len(ignored_indices),
-    )
-    return result
+
+    if failed:
+        logger.warning("adjustments_partial applied=%d failed=%d user_id=%s", applied, failed, user_id)
+    else:
+        logger.info("adjustments_applied count=%d user_id=%s", applied, user_id)
+
+    return result, None
 
 
 def save_extrato_adjustments(user_id: int, updated_rows: list[dict[str, Any]]) -> None:

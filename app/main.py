@@ -342,14 +342,18 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
 
         existing_rows = analysis.get("statement_rows") or []
         if existing_rows and mensagem:
-            updated_rows = apply_user_adjustments(mensagem, existing_rows)
-            if updated_rows != existing_rows:
+            updated_rows, adj_error = apply_user_adjustments(mensagem, existing_rows, user_id)
+            if adj_error:
+                resposta = adj_error
+            elif updated_rows != existing_rows:
                 analysis["statement_rows"] = updated_rows
                 save_extrato_adjustments(user_id, updated_rows)
-            resposta = (
-                _build_analysis_message(analysis, "extrato").rstrip()
-                + "\n\nAjustei conforme solicitado. Confirma agora com SIM?"
-            ) if updated_rows != existing_rows else _build_analysis_message(analysis, "extrato")
+                resposta = (
+                    _build_analysis_message(analysis, "extrato").rstrip()
+                    + "\n\nAjustei conforme solicitado. Confirma agora com SIM?"
+                )
+            else:
+                resposta = _build_analysis_message(analysis, "extrato")
         else:
             resposta = _build_analysis_message(analysis, "extrato")
         return Response(content=build_twiml(resposta), media_type="application/xml")
