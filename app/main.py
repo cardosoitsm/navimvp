@@ -30,6 +30,7 @@ from app.services.conversation import (
 )
 from app.services.documents import (
     _build_analysis_message,
+    apply_user_adjustments,
     build_invoice_status_message,
     build_onboarding_completion_message,
     complete_document_onboarding,
@@ -46,6 +47,7 @@ from app.services.documents import (
     is_waiting_for_document,
     process_stored_document,
     register_received_document,
+    save_extrato_adjustments,
     should_skip_document_onboarding,
     should_start_document_onboarding,
     start_document_onboarding,
@@ -330,14 +332,26 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
         analysis = get_latest_extrato_analysis(user_id)
-        if analysis:
-            resposta = _build_analysis_message(analysis, "extrato")
-        else:
+        if not analysis:
+            set_onboarding_state(user_id, BUDGET_SETUP_PENDING)
             resposta = (
                 "Não consegui extrair os lançamentos do seu extrato.\n\n"
                 f"{onboarding_budget_prompt()}"
             )
-            set_onboarding_state(user_id, BUDGET_SETUP_PENDING)
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        existing_rows = analysis.get("statement_rows") or []
+        if existing_rows and mensagem:
+            updated_rows = apply_user_adjustments(mensagem, existing_rows)
+            if updated_rows != existing_rows:
+                analysis["statement_rows"] = updated_rows
+                save_extrato_adjustments(user_id, updated_rows)
+            resposta = (
+                _build_analysis_message(analysis, "extrato").rstrip()
+                + "\n\nAjustei conforme solicitado. Confirma agora com SIM?"
+            ) if updated_rows != existing_rows else _build_analysis_message(analysis, "extrato")
+        else:
+            resposta = _build_analysis_message(analysis, "extrato")
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
     if onboarding_state == BUDGET_SETUP_PENDING or not is_budget_onboarding_completed(user_id):
