@@ -875,12 +875,12 @@ def document_upload_prompt(user_id: int | None = None) -> str:
         invoice_target = _card_invoice_message(user_id)
         if not invoice_target:
             return (
-                "Se quiser incluir uma fatura de cartao agora, pode me mandar por aqui.\n\n"
-                'Pode ser imagem ou PDF. Se preferir deixar isso para depois, e so responder "PULAR".'
+                "Se quiser incluir uma fatura de cartão agora, pode me mandar por aqui.\n\n"
+                'Pode ser imagem ou PDF. Se preferir deixar isso para depois, é só responder "PULAR".'
             )
         return (
             f"Perfeito. Como eu já tenho seu extrato, agora pode me mandar {invoice_target}.\n\n"
-            'Pode ser imagem ou PDF. Se mudar de ideia, e so responder "PULAR".'
+            'Pode ser imagem ou PDF. Se mudar de ideia, é só responder "PULAR".'
         )
 
     return (
@@ -1034,7 +1034,7 @@ def register_received_document(
         raise HTTPException(
             status_code=400,
             detail=(
-                "Recebi sua midia, mas por enquanto consigo trabalhar apenas com imagem ou PDF. "
+                "Recebi sua mídia, mas por enquanto consigo trabalhar apenas com imagem ou PDF. "
                 "Pode me enviar o extrato ou a fatura nesses formatos?"
             ),
         )
@@ -1556,17 +1556,17 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
         if detected_income is not None:
             lines.append(f"- renda identificada: R${detected_income:.2f}")
             if income_description:
-                lines.append(f"- origem mais provavel da renda: {income_description}")
+                lines.append(f"- origem mais provável da renda: {income_description}")
             confidence_label = _format_income_confidence(income_confidence)
             if confidence_label:
-                lines.append(f"- confianca da renda identificada: {confidence_label}")
+                lines.append(f"- confiança da renda identificada: {confidence_label}")
         elif income_kind in {"investment", "transfer", "refund"} and income_description:
             labels = {
-                "investment": "uma movimentacao de investimento",
-                "transfer": "uma transferencia recebida",
+                "investment": "uma movimentação de investimento",
+                "transfer": "uma transferência recebida",
                 "refund": "um estorno ou reembolso",
             }
-            lines.append(f"- encontrei um credito, mas ele parece ser {labels.get(income_kind, 'um credito pontual')} e nao renda recorrente")
+            lines.append(f"- encontrei um crédito, mas ele parece ser {labels.get(income_kind, 'um crédito pontual')} e não renda recorrente")
             lines.append(f"- origem observada: {income_description}")
         account_limit = _safe_float(analysis.get("account_limit"))
         if account_limit is not None:
@@ -1606,31 +1606,31 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
             ])
         elif credit_entries or debit_entries:
             if credit_entries:
-                lines.extend(["", f"Creditos identificados ({len(credit_entries)} no total):"])
+                lines.extend(["", f"Créditos identificados ({len(credit_entries)} no total):"])
                 for entry in credit_entries[:10]:
                     prefix = f"{entry['date']} - " if entry.get("date") else ""
                     lines.append(f"- {prefix}{entry['description']}: R${entry['amount']:.2f}")
                 if len(credit_entries) > 10:
-                    lines.append(f"- ...e mais {len(credit_entries) - 10} lancamentos de credito.")
+                    lines.append(f"- ...e mais {len(credit_entries) - 10} lançamentos de crédito.")
             if debit_entries:
-                lines.extend(["", f"Debitos identificados ({len(debit_entries)} no total):"])
+                lines.extend(["", f"Débitos identificados ({len(debit_entries)} no total):"])
                 for entry in debit_entries[:10]:
                     prefix = f"{entry['date']} - " if entry.get("date") else ""
                     lines.append(f"- {prefix}{entry['description']}: R${entry['amount']:.2f}")
                 if len(debit_entries) > 10:
-                    lines.append(f"- ...e mais {len(debit_entries) - 10} lancamentos de debito.")
+                    lines.append(f"- ...e mais {len(debit_entries) - 10} lançamentos de débito.")
     elif document_type == "fatura_cartao":
-        lines.append("Recebi sua fatura e ja extraí alguns dados importantes.")
+        lines.append("Recebi sua fatura e já extraí alguns dados importantes.")
         if invoice_total is not None:
             lines.append(f"- valor total da fatura: {format_brl(invoice_total)}")
         if due_date:
             formatted_due = format_ptbr_date(due_date) or due_date
             lines.append(f"- vencimento: {formatted_due}")
         if minimum_payment is not None:
-            lines.append(f"- pagamento minimo: {format_brl(minimum_payment)}")
+            lines.append(f"- pagamento mínimo: {format_brl(minimum_payment)}")
         credit_limit = _safe_float(analysis.get("credit_limit"))
         if credit_limit is not None:
-            lines.append(f"- limite do cartao: {format_brl(credit_limit)}")
+            lines.append(f"- limite do cartão: {format_brl(credit_limit)}")
         best_purchase_day_raw = analysis.get("best_purchase_day")
         if best_purchase_day_raw is not None:
             try:
@@ -1640,7 +1640,7 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
             except (TypeError, ValueError):
                 pass
     else:
-        lines.append("Recebi seu documento financeiro e consegui registrar algumas informacoes iniciais.")
+        lines.append("Recebi seu documento financeiro e consegui registrar algumas informações iniciais.")
 
     if summary:
         lines.extend(["", summary])
@@ -1651,8 +1651,8 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
         lines.extend(
             [
                 "",
-                f"Analisei {pages_included} das {total_pages} paginas do documento, "
-                "priorizando as secoes com mais dados financeiros. "
+                f"Analisei {pages_included} das {total_pages} páginas do documento, "
+                "priorizando as seções com mais dados financeiros. "
                 "Se quiser que eu veja o restante, pode me mandar o arquivo dividido em partes.",
             ]
         )
@@ -1660,7 +1660,7 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
     lines.extend(
         [
             "",
-            "Vou usar essas informacoes para deixar meus alertas financeiros mais inteligentes.",
+            "Vou usar essas informações para deixar meus alertas financeiros mais inteligentes.",
         ]
     )
     return "\n".join(lines)
@@ -1673,7 +1673,7 @@ def process_received_document(user_id: int, media_url: str, media_content_type: 
     if media_content_type not in SUPPORTED_MEDIA_TYPES:
         return (
             "Recebi seu documento, mas por enquanto eu só consigo analisar imagens e PDFs. "
-            "Vou guardar essa referencia para as proximas evolucoes."
+            "Vou guardar essa referência para as próximas evoluções."
         )
 
     try:

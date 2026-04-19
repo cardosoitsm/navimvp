@@ -331,7 +331,7 @@ def card_count_prompt() -> str:
 
 def cost_review_prompt(fixed_costs: list[dict[str, float | str]], variable_costs: list[dict[str, float | str]]) -> str:
     lines = [
-        "Pelo que apareceu no seu extrato, eu ja consegui montar uma primeira leitura dos seus custos mensais.",
+        "Pelo que apareceu no seu extrato, eu já consegui montar uma primeira leitura dos seus custos mensais.",
     ]
 
     if fixed_costs:
@@ -341,7 +341,7 @@ def cost_review_prompt(fixed_costs: list[dict[str, float | str]], variable_costs
             lines.append(f"- {item['descricao']}: {format_brl(float(item['valor']))} | categoria sugerida: {categoria}")
 
     if variable_costs:
-        lines.extend(["", "Custos que parecem mais variaveis:"])
+        lines.extend(["", "Custos que parecem mais variáveis:"])
         for item in variable_costs[:4]:
             categoria = str(item.get("categoria") or "sem categoria")
             lines.append(f"- {item['descricao']}: {format_brl(float(item['valor']))} | categoria sugerida: {categoria}")
@@ -360,7 +360,7 @@ def cost_review_prompt(fixed_costs: list[dict[str, float | str]], variable_costs
 def cost_review_adjustment_prompt() -> str:
     return (
         "Posso ajustar isso com você por aqui.\n\n"
-        'Me diga no formato que for mais natural, por exemplo: "Seguro e fixo" ou "Mercado entra em alimentacao".'
+        'Me diga no formato que for mais natural, por exemplo: "Seguro é fixo" ou "Mercado entra em alimentação".'
     )
 
 
@@ -374,7 +374,7 @@ def card_names_prompt(total: int) -> str:
     return (
         f"Então vamos cadastrar esses {total} cartões.\n\n"
         "Me diga como você quer chamar cada um deles, de preferência na ordem, separado por vírgula.\n"
-        "Por exemplo: Nubank, Itau, Cartao da Casa"
+        "Por exemplo: Nubank, Itaú, Cartão da Casa"
     )
 
 
@@ -1252,13 +1252,13 @@ def parse_card_names_llm_first(text: str, expected_count: int) -> list[str]:
 
 def build_card_setup_confirmation(names: list[str]) -> str:
     if not names:
-        return "Tudo bem. A gente pode cadastrar seus cartoes depois."
+        return "Tudo bem. A gente pode cadastrar seus cartões depois."
 
     if len(names) == 1:
-        return f"Perfeito. Vou acompanhar esse cartao por aqui como {names[0]}."
+        return f"Perfeito. Vou acompanhar esse cartão por aqui como {names[0]}."
 
     listed_names = ", ".join(names[:-1]) + f" e {names[-1]}"
-    return f"Perfeito. Vou acompanhar esses cartoes por aqui como {listed_names}."
+    return f"Perfeito. Vou acompanhar esses cartões por aqui como {listed_names}."
 
 
 def get_onboarding_state(user_id: int) -> str:
