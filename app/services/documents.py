@@ -1641,6 +1641,111 @@ def process_received_document(user_id: int, media_url: str, media_content_type: 
     return _build_analysis_message(analysis, hinted_type)
 
 
+def apply_user_adjustments(raw_text: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Parse natural-language adjustments from the user and apply them to existing statement rows."""
+    settings = get_settings()
+    if not settings.openai_api_key or not rows:
+        return rows
+
+    rows_summary = "\n".join(
+        f'{i}: {r.get("date","")} {r["description"]} '
+        f'({r.get("tipo_custo","")}/{r.get("categoria_sugerida","")}'
+        f'{"/" + r["subcategoria_sugerida"] if r.get("subcategoria_sugerida") else ""})'
+        for i, r in enumerate(rows)
+    )
+    client = OpenAI(api_key=settings.openai_api_key)
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Voce recebe uma lista de lancamentos financeiros numerados e uma mensagem do usuario com ajustes. "
+                        "Retorne apenas JSON valido: lista de ajustes no formato "
+                        '[{"indice":numero,"acao":"atualizar|ignorar",'
+                        '"categoria":"nova categoria ou null","subcategoria":"nova subcategoria ou null",'
+                        '"tipo_custo":"fixo|variavel|rendimento|credito ou null"}]. '
+                        "Use 'ignorar' para descartar o lancamento. "
+                        "Identifique o lancamento pelo indice ou por palavras-chave na descricao. "
+                        "Se a mensagem nao contiver ajustes reconheciveis, retorne []."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Lancamentos atuais:\n{rows_summary}\n\n"
+                        f"Ajuste solicitado pelo usuario: {raw_text}"
+                    ),
+                },
+            ],
+        )
+        content = response.choices[0].message.content or "[]"
+        adjustments = _parse_openai_json(content)
+        if not isinstance(adjustments, list):
+            adjustments = []
+    except Exception:
+        logger.exception("apply_adjustments_gpt_error")
+        return rows
+
+    updated = [dict(r) for r in rows]
+    ignored_indices: set[int] = set()
+
+    for adj in adjustments:
+        if not isinstance(adj, dict):
+            continue
+        idx = adj.get("indice")
+        if not isinstance(idx, int) or idx < 0 or idx >= len(updated):
+            continue
+        if adj.get("acao") == "ignorar":
+            ignored_indices.add(idx)
+            continue
+        if adj.get("categoria"):
+            updated[idx]["categoria_sugerida"] = str(adj["categoria"]).strip()
+        if "subcategoria" in adj and adj["subcategoria"] is not None:
+            updated[idx]["subcategoria_sugerida"] = str(adj["subcategoria"]).strip() or None
+        if adj.get("tipo_custo") and adj["tipo_custo"] in {"fixo", "variavel", "rendimento", "credito"}:
+            updated[idx]["tipo_custo"] = adj["tipo_custo"]
+
+    result = [r for i, r in enumerate(updated) if i not in ignored_indices]
+    logger.info(
+        "apply_adjustments_done total=%d adjusted=%d ignored=%d",
+        len(rows), len(adjustments) - len(ignored_indices), len(ignored_indices),
+    )
+    return result
+
+
+def save_extrato_adjustments(user_id: int, updated_rows: list[dict[str, Any]]) -> None:
+    """Persist adjusted statement_rows back to the latest extrato extracted_json."""
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            """
+            SELECT id, extracted_json FROM documentos_financeiros
+            WHERE user_id = %s AND tipo_documento = 'extrato'
+              AND extracted_json IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        )
+        row = cursor.fetchone()
+    if not row:
+        return
+    doc_id, extracted_json_str = row
+    try:
+        analysis = json.loads(extracted_json_str)
+    except Exception:
+        return
+    analysis["statement_rows"] = updated_rows
+    updated_json = json.dumps(analysis, ensure_ascii=False)
+    with get_cursor() as (conn, cursor):
+        cursor.execute(
+            "UPDATE documentos_financeiros SET extracted_json = %s WHERE id = %s",
+            (updated_json, doc_id),
+        )
+        conn.commit()
+
+
 def is_document_processing(user_id: int) -> bool:
     with get_cursor() as (_, cursor):
         cursor.execute(
