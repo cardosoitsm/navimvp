@@ -29,6 +29,7 @@ from app.services.conversation import (
     reject_pending_transaction,
 )
 from app.services.documents import (
+    _build_analysis_message,
     build_invoice_status_message,
     build_onboarding_completion_message,
     complete_document_onboarding,
@@ -37,7 +38,9 @@ from app.services.documents import (
     document_upload_prompt,
     document_upload_retry_prompt,
     get_incoming_media,
+    get_latest_extrato_analysis,
     has_document_type,
+    is_document_processing,
     is_invoice_followup_message,
     is_document_onboarding_completed,
     is_waiting_for_document,
@@ -57,6 +60,7 @@ from app.services.voice import is_audio_media, transcribe_audio
 from app.services.onboarding import (
     USER_REGISTRATION_PENDING,
     ACCOUNT_SNAPSHOT_PENDING,
+    STATEMENT_REVIEW_PENDING,
     BUDGET_SETUP_PENDING,
     CARD_COUNT_PENDING,
     COST_REVIEW_PENDING,
@@ -117,7 +121,7 @@ from app.services.help import (
     save_help_context,
 )
 from app.services.summary import listar_ultimas_transacoes, resumo_categoria, resumo_mes
-from app.services.twilio import build_twiml
+from app.services.twilio import build_twiml, responder
 from app.services.users import (
     authenticate_user,
     delete_user_account,
@@ -198,7 +202,11 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         )
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
-    def _register_document_upload(forced_type: str | None = None) -> str:
+    def _register_document_upload(
+        forced_type: str | None = None,
+        on_complete_numero: str | None = None,
+        on_complete_state: str | None = None,
+    ) -> str:
         media_url, media_content_type = incoming_media  # type: ignore[misc]
         current_card = get_current_card(user_id) if forced_type == "fatura_cartao" else None
         document_id, hinted_type, resposta = register_received_document(
@@ -218,6 +226,8 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             mensagem,
             hinted_type,
             int(current_card["id"]) if current_card and current_card.get("id") is not None else None,
+            on_complete_numero,
+            on_complete_state,
         )
         return resposta
 
@@ -248,12 +258,15 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
 
     if onboarding_state == ACCOUNT_SNAPSHOT_PENDING:
         if incoming_media:
-            _register_document_upload("extrato")
-            set_onboarding_state(user_id, BUDGET_SETUP_PENDING)
+            _register_document_upload(
+                "extrato",
+                on_complete_numero=numero,
+                on_complete_state=STATEMENT_REVIEW_PENDING,
+            )
+            set_onboarding_state(user_id, STATEMENT_REVIEW_PENDING)
             resposta = (
-                "Recebi seu extrato e já deixei esse arquivo salvo aqui na sua base financeira.\n\n"
-                "Com ele, eu consigo montar seu ponto de partida e usar essas informações nas próximas análises.\n\n"
-                f"{onboarding_budget_prompt()}"
+                "Recebi seu extrato. Estou analisando os lançamentos agora, isso leva alguns instantes...\n\n"
+                "Assim que terminar, te mando a lista completa para você revisar antes de continuarmos."
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
@@ -292,6 +305,30 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
         resposta = account_snapshot_retry_prompt()
+        return Response(content=build_twiml(resposta), media_type="application/xml")
+
+    if onboarding_state == STATEMENT_REVIEW_PENDING:
+        if is_document_processing(user_id):
+            resposta = "Ainda estou analisando seu extrato, aguarde um momento..."
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        if is_confirmation_yes(msg_lower):
+            set_onboarding_state(user_id, BUDGET_SETUP_PENDING)
+            resposta = (
+                "Ótimo! Lançamentos confirmados.\n\n"
+                f"{onboarding_budget_prompt()}"
+            )
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        analysis = get_latest_extrato_analysis(user_id)
+        if analysis:
+            resposta = _build_analysis_message(analysis, "extrato")
+        else:
+            resposta = (
+                "Não consegui extrair os lançamentos do seu extrato.\n\n"
+                f"{onboarding_budget_prompt()}"
+            )
+            set_onboarding_state(user_id, BUDGET_SETUP_PENDING)
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
     if onboarding_state == BUDGET_SETUP_PENDING or not is_budget_onboarding_completed(user_id):

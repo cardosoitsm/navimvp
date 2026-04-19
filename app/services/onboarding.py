@@ -11,6 +11,7 @@ from app.services.formatting import format_brl
 
 USER_REGISTRATION_PENDING = "user_registration_pending"
 ACCOUNT_SNAPSHOT_PENDING = "account_snapshot_pending"
+STATEMENT_REVIEW_PENDING = "statement_review_pending"
 BUDGET_SETUP_PENDING = "budget_setup_pending"
 COST_REVIEW_PENDING = "cost_review_pending"
 CARD_COUNT_PENDING = "card_count_pending"
