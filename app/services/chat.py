@@ -10,7 +10,7 @@ from app.db import get_cursor
 from app.schemas import ParsedTransaction, PendingTransaction
 from app.services.budgets import build_budget_feedback
 from app.services.conversation import save_pending_confirmation, should_request_confirmation
-from app.services.formatting import format_brl
+from app.services.formatting import format_brl, normalize_ptbr_accents
 from app.services.summary import gerar_insight
 
 
@@ -88,7 +88,7 @@ def _extract_transactions_from_ai(text: str) -> list[ParsedTransaction]:
                     'Classifique a mensagem:\n\n'
                     f'"{text}"\n\n'
                     "Retorne uma lista de objetos no formato:\n"
-                    '[{"tipo":"receita ou despesa","categoria":"categoria","subcategoria":"subcategoria especifica ou null","valor":numero}]'
+                    '[{"tipo":"receita ou despesa","categoria":"categoria COM acentuacao PT-BR correta (ex: Alimentação, Educação, Automóvel)","subcategoria":"subcategoria especifica COM acentuacao PT-BR correta ou null","valor":numero}]'
                 ),
             },
         ],
@@ -109,9 +109,11 @@ def _extract_transactions_from_ai(text: str) -> list[ParsedTransaction]:
 
 def _normalize_transaction(text: str, transaction: ParsedTransaction) -> PendingTransaction:
     categoria_regra = classificar_categoria(text)
-    categoria = categoria_regra or _normalizar_texto(transaction.categoria or "outros")
+    categoria_raw = categoria_regra or (transaction.categoria or "outros").strip()
+    categoria = normalize_ptbr_accents(categoria_raw)
     tipo = _normalizar_texto(transaction.tipo or "despesa")
-    subcategoria = transaction.subcategoria.strip() if transaction.subcategoria else None
+    subcategoria_raw = transaction.subcategoria.strip() if transaction.subcategoria else None
+    subcategoria = normalize_ptbr_accents(subcategoria_raw) if subcategoria_raw else None
     return PendingTransaction(tipo=tipo, categoria=categoria, subcategoria=subcategoria, valor=float(transaction.valor))
 
 
