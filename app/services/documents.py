@@ -192,6 +192,7 @@ def _statement_extraction_instructions() -> str:
         "tipo_custo ('fixo' para recorrentes mensais, 'variavel' para gastos pontuais, "
         "'rendimento' para creditos de investimento/aplicacao, 'credito' para outros creditos), "
         "categoria_sugerida (use uma das categorias disponiveis ou 'Outros'), "
+        "subcategoria_sugerida (subcategoria especifica quando identificavel, ex: 'supermercado', 'uber', 'academia', ou null), "
         "confirmado (sempre false na primeira analise). "
         "debit_entries: TODOS os debitos — compras, PIX enviados, tarifas, qualquer saida. "
         "credit_entries: TODOS os creditos — rendimentos, aplicacoes, estornos, transferencias, qualquer entrada."
@@ -283,6 +284,7 @@ def _normalize_statement_rows(rows: Any) -> list[dict[str, Any]]:
         tipo_custo_raw = str(row.get("tipo_custo") or "").strip().lower()
         tipo_custo = tipo_custo_raw if tipo_custo_raw in {"fixo", "variavel", "rendimento", "credito"} else "variavel"
         categoria_sugerida = str(row.get("categoria_sugerida") or "Outros").strip() or "Outros"
+        subcategoria_sugerida = str(row.get("subcategoria_sugerida") or "").strip() or None
 
         normalized_rows.append(
             {
@@ -295,6 +297,7 @@ def _normalize_statement_rows(rows: Any) -> list[dict[str, Any]]:
                 "confidence": confidence if confidence in {"high", "medium", "low"} else "medium",
                 "tipo_custo": tipo_custo,
                 "categoria_sugerida": categoria_sugerida,
+                "subcategoria_sugerida": subcategoria_sugerida,
                 "confirmado": False,
             }
         )
@@ -667,7 +670,7 @@ def _build_document_analysis_system_prompt(income_instructions: str, hinted_type
         '"account_limit":numero ou null,'
         '"pending_charges":numero ou null,'
         '"charges_debit_date":"YYYY-MM-DD" ou null,'
-        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"texto EXATAMENTE como no documento","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low","tipo_custo":"fixo|variavel|rendimento|credito","categoria_sugerida":"nome da categoria ou Outros","confirmado":false}] — INCLUA ABSOLUTAMENTE TODOS os lancamentos sem filtrar,'
+        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"texto EXATAMENTE como no documento","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low","tipo_custo":"fixo|variavel|rendimento|credito","categoria_sugerida":"nome da categoria ou Outros","subcategoria_sugerida":"subcategoria especifica ou null","confirmado":false}] — INCLUA ABSOLUTAMENTE TODOS os lancamentos sem filtrar,'
         '"credit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}] (TODOS os creditos: remuneracao de aplicacao, rendimento, estorno, transferencia — mesmo R$0,01),'
         '"debit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}] (TODOS os debitos: cartao de debito, PIX enviado, tarifa, compra — mesmo valores pequenos),'
         '"estimated_fixed_expenses":numero ou null,'
@@ -1539,7 +1542,9 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
                     valor_str = ""
                 tipo = row.get("tipo_custo") or ""
                 cat = row.get("categoria_sugerida") or ""
-                meta = " | ".join(part for part in [tipo, cat] if part)
+                subcat = row.get("subcategoria_sugerida") or ""
+                cat_display = f"{cat}/{subcat}" if cat and subcat else cat
+                meta = " | ".join(part for part in [tipo, cat_display] if part)
                 suffix = f" ({meta})" if meta else ""
                 val_part = f": {valor_str}" if valor_str else ""
                 lines.append(f"- {date_prefix}{row['description']}{val_part}{suffix}")

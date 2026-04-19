@@ -237,6 +237,14 @@ SCHEMA_STATEMENTS = (
     UPDATE categorias SET nome = INITCAP(nome)
     WHERE nome ~ '^[a-z]'
     """,
+    """
+    ALTER TABLE transacoes
+    ADD COLUMN IF NOT EXISTS subcategoria VARCHAR(100) NULL
+    """,
+    """
+    ALTER TABLE custos_mensais
+    ADD COLUMN IF NOT EXISTS subcategoria VARCHAR(100) NULL
+    """,
 )
 
 

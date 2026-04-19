@@ -883,18 +883,18 @@ def save_cost_candidates(
                 for item in fixed_costs:
                     cursor.execute(
                         """
-                        INSERT INTO custos_mensais (user_id, descricao, categoria, valor_medio, tipo_custo, confirmado, origem)
-                        VALUES (%s, %s, %s, %s, 'fixo', TRUE, %s)
+                        INSERT INTO custos_mensais (user_id, descricao, categoria, subcategoria, valor_medio, tipo_custo, confirmado, origem)
+                        VALUES (%s, %s, %s, %s, %s, 'fixo', TRUE, %s)
                         """,
-                        (user_id, item["descricao"], item.get("categoria"), item["valor"], origem),
+                        (user_id, item["descricao"], item.get("categoria"), item.get("subcategoria"), item["valor"], origem),
                     )
                 for item in variable_costs:
                     cursor.execute(
                         """
-                        INSERT INTO custos_mensais (user_id, descricao, categoria, valor_medio, tipo_custo, confirmado, origem)
-                        VALUES (%s, %s, %s, %s, 'variavel', TRUE, %s)
+                        INSERT INTO custos_mensais (user_id, descricao, categoria, subcategoria, valor_medio, tipo_custo, confirmado, origem)
+                        VALUES (%s, %s, %s, %s, %s, 'variavel', TRUE, %s)
                         """,
-                        (user_id, item["descricao"], item.get("categoria"), item["valor"], origem),
+                        (user_id, item["descricao"], item.get("categoria"), item.get("subcategoria"), item["valor"], origem),
                     )
 
         if _column_exists(cursor, "configuracoes_usuario", "custos_onboarding_concluido"):

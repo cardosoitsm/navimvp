@@ -254,17 +254,18 @@ def confirm_pending_transaction(user_id: int) -> dict[str, str]:
     with get_cursor() as (conn, cursor):
         cursor.execute(
             """
-            INSERT INTO transacoes (tipo, categoria, valor, user_id)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO transacoes (tipo, categoria, subcategoria, valor, user_id)
+            VALUES (%s, %s, %s, %s, %s)
             """,
-            (pending.tipo, pending.categoria, pending.valor, user_id),
+            (pending.tipo, pending.categoria, pending.subcategoria, pending.valor, user_id),
         )
         cursor.execute("DELETE FROM confirmacoes_pendentes WHERE user_id = %s", (user_id,))
         conn.commit()
 
+    cat_display = f"{pending.categoria}/{pending.subcategoria}" if pending.subcategoria else pending.categoria
     resposta = (
         "Transacao confirmada:\n\n"
-        f"- {pending.categoria}: R${pending.valor:.2f}"
+        f"- {cat_display}: R${pending.valor:.2f}"
     )
     budget_feedback = build_budget_feedback(user_id, pending.categoria)
     if budget_feedback:

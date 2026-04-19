@@ -13,12 +13,14 @@ class Message(BaseModel):
 class ParsedTransaction(BaseModel):
     tipo: str = "despesa"
     categoria: str = "Outros"
+    subcategoria: str | None = None
     valor: float = 0
 
 
 class PendingTransaction(BaseModel):
     tipo: str = "despesa"
     categoria: str = "Outros"
+    subcategoria: str | None = None
     valor: float
 
 
