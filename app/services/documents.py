@@ -496,9 +496,21 @@ def _score_page_financial_density(text: str) -> int:
     )
 
 
+_DATE_RE = re.compile(r'\b\d{2}/\d{2}/\d{2,4}\b')
+_AMOUNT_RE = re.compile(r'(?:R\$\s*)?\d{1,3}(?:[.\s]\d{3})*[,]\d{2}|\b\d+[,]\d{2}\b')
+
+
 def _count_raw_transaction_candidates(text: str) -> int:
-    """Count date-like patterns (dd/mm/yy or dd/mm/yyyy) as a proxy for transaction line count."""
-    return len(re.findall(r'\b\d{2}/\d{2}/\d{2,4}\b', text))
+    """Count lines that have both a date (dd/mm/yy|yyyy) and a BRL monetary value.
+
+    Requiring both date and amount on the same line avoids counting header rows,
+    balance/summary lines, and broken pdfplumber wraps that contain only dates.
+    """
+    count = 0
+    for line in text.splitlines():
+        if _DATE_RE.search(line) and _AMOUNT_RE.search(line):
+            count += 1
+    return count
 
 
 def _anonymize_document_text(text: str) -> str:
