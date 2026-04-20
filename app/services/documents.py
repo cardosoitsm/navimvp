@@ -348,10 +348,20 @@ def _normalize_statement_rows(rows: Any) -> list[dict[str, Any]]:
         if parcela_atual is not None and parcelas_totais is not None and not (1 <= parcela_atual <= parcelas_totais <= 360):
             parcela_atual = parcelas_totais = None
 
+        referencia_bancaria = str(row.get("referencia_bancaria") or "").strip() or None
+
+        if len(description) > 200:
+            logger.warning(
+                "doc_description_long len=%d preview=%.100s",
+                len(description),
+                description,
+            )
+
         normalized_rows.append(
             {
                 "date": _normalize_date(row.get("date")),
                 "description": description,
+                "referencia_bancaria": referencia_bancaria,
                 "credit": abs(credit) if credit is not None else None,
                 "debit": abs(debit) if debit is not None else None,
                 "balance": balance,
@@ -368,6 +378,9 @@ def _normalize_statement_rows(rows: Any) -> list[dict[str, Any]]:
 
     if filtered_count:
         logger.info("doc_filtered_non_transactions count=%d", filtered_count)
+    if normalized_rows:
+        max_desc_len = max(len(r["description"]) for r in normalized_rows)
+        logger.info("doc_normalize_rows count=%d max_description_len=%d", len(normalized_rows), max_desc_len)
 
     return normalized_rows
 
@@ -782,7 +795,7 @@ def _build_document_analysis_system_prompt(income_instructions: str, hinted_type
         '"account_limit":numero ou null,'
         '"pending_charges":numero ou null,'
         '"charges_debit_date":"YYYY-MM-DD" ou null,'
-        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"texto EXATAMENTE como no documento","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low","tipo_custo":"fixo|variavel|rendimento|credito","categoria_sugerida":"nome da categoria com acentuação correta no idioma do usuário ou Outros","subcategoria_sugerida":"subcategoria especifica com acentuação correta no idioma do usuário ou null","parcela_atual":numero inteiro ou null,"parcelas_totais":numero inteiro ou null,"confirmado":false}] — INCLUA ABSOLUTAMENTE TODOS os lancamentos sem filtrar. Para transacoes parceladas (ex: Parc 02/12, Parcela 2/12, 03/06, 2 de 6), extraia parcela_atual e parcelas_totais como inteiros; para compras a vista retorne null para ambos,'
+        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"descrição semântica da transação — o texto que identifica o comerciante, pagador ou natureza da operação; remova códigos internos do banco, números de documentos, referências técnicas ou ruído visual que não agregue significado ao usuário (ex: se o texto bruto for \'COMPRA DEBITO LOJA XYZ DOC 098765\', retorne \'COMPRA DEBITO LOJA XYZ\'; se for \'TRANSFERENCIA PARA JOAO REF 12345\', retorne \'TRANSFERENCIA PARA JOAO\')","referencia_bancaria":"código de documento, chave PIX ou referência técnica do banco identificada no texto bruto, ou null","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low","tipo_custo":"fixo|variavel|rendimento|credito","categoria_sugerida":"nome da categoria com acentuação correta no idioma do usuário ou Outros","subcategoria_sugerida":"subcategoria especifica com acentuação correta no idioma do usuário ou null","parcela_atual":numero inteiro ou null,"parcelas_totais":numero inteiro ou null,"confirmado":false}] — INCLUA ABSOLUTAMENTE TODOS os lancamentos sem filtrar. Para transacoes parceladas (ex: Parc 02/12, Parcela 2/12, 03/06, 2 de 6), extraia parcela_atual e parcelas_totais como inteiros; para compras a vista retorne null para ambos,'
         '"credit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}] (TODOS os creditos: remuneracao de aplicacao, rendimento, estorno, transferencia — mesmo R$0,01),'
         '"debit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}] (TODOS os debitos: cartao de debito, PIX enviado, tarifa, compra — mesmo valores pequenos),'
         '"estimated_fixed_expenses":numero ou null,'
@@ -1414,6 +1427,15 @@ def _extract_document_analysis(
     analysis["_pages_included"] = pages_included
     analysis["_total_pages"] = total_pages
 
+    raw_rows = analysis.get("statement_rows") or []
+    if isinstance(raw_rows, list):
+        for r in raw_rows:
+            if isinstance(r, dict) and r.get("description"):
+                d = str(r["description"])
+                if len(d) > 200:
+                    logger.warning("doc_gpt_description_long pre_normalize len=%d preview=%.100s", len(d), d)
+        logger.info("doc_gpt_rows_raw count=%d", len(raw_rows))
+
     analysis["statement_rows"] = _normalize_statement_rows(analysis.get("statement_rows"))
     derived_credit_entries, derived_debit_entries = _derive_statement_entries(analysis["statement_rows"])
     analysis["credit_entries"] = derived_credit_entries or _normalize_statement_entries(analysis.get("credit_entries"))
@@ -1650,7 +1672,7 @@ def _build_adjustments_applied_message(
         if orig.get("tipo_custo") != row.get("tipo_custo"):
             parts.append(f"tipo: {_format_cost_type(row.get('tipo_custo', ''))}")
         if parts:
-            changes.append(f"- {desc[:50]}: {', '.join(parts)}")
+            changes.append(f"- {desc}: {', '.join(parts)}")
 
     if ignored_count > 0:
         changes.append(f"- {ignored_count} lançamento(s) removido(s) da lista")
