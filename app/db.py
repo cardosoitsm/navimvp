@@ -261,6 +261,10 @@ SCHEMA_STATEMENTS = (
     ALTER TABLE transacoes
     ADD COLUMN IF NOT EXISTS parcelas_totais INTEGER NULL
     """,
+    """
+    ALTER TABLE custos_mensais
+    ALTER COLUMN descricao TYPE TEXT
+    """,
 )
 
 
