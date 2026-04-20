@@ -29,6 +29,7 @@ from app.services.conversation import (
     reject_pending_transaction,
 )
 from app.services.documents import (
+    _build_adjustments_applied_message,
     _build_analysis_message,
     apply_user_adjustments,
     build_invoice_status_message,
@@ -351,10 +352,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             elif updated_rows != existing_rows:
                 analysis["statement_rows"] = updated_rows
                 save_extrato_adjustments(user_id, updated_rows)
-                resposta = (
-                    _build_analysis_message(analysis, "extrato").rstrip()
-                    + "\n\nAjustei conforme solicitado. Confirma agora com SIM?"
-                )
+                resposta = _build_adjustments_applied_message(updated_rows, existing_rows)
             else:
                 resposta = _build_analysis_message(analysis, "extrato")
         else:

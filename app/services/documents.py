@@ -1579,6 +1579,46 @@ def _render_statement_rows(rows: list[dict[str, Any]]) -> list[str]:
     return result
 
 
+def _build_adjustments_applied_message(
+    updated_rows: list[dict[str, Any]],
+    original_rows: list[dict[str, Any]],
+) -> str:
+    """Return a lean confirmation after apply_user_adjustments(), listing only what changed."""
+    ignored_count = len(original_rows) - len(updated_rows)
+    original_by_desc = {r.get("description", ""): r for r in original_rows}
+    changes: list[str] = []
+
+    for row in updated_rows:
+        desc = row.get("description", "")
+        orig = original_by_desc.get(desc)
+        if orig is None:
+            continue
+        parts: list[str] = []
+        if orig.get("categoria_sugerida") != row.get("categoria_sugerida"):
+            parts.append(f"categoria: {row.get('categoria_sugerida') or 'Outros'}")
+        if orig.get("subcategoria_sugerida") != row.get("subcategoria_sugerida"):
+            new_sub = row.get("subcategoria_sugerida") or "sem subcategoria"
+            parts.append(f"subcategoria: {new_sub}")
+        if orig.get("tipo_custo") != row.get("tipo_custo"):
+            parts.append(f"tipo: {row.get('tipo_custo', '')}")
+        if parts:
+            changes.append(f"- {desc[:50]}: {', '.join(parts)}")
+
+    if ignored_count > 0:
+        changes.append(f"- {ignored_count} lançamento(s) removido(s) da lista")
+
+    if not changes:
+        return 'Não identifiquei nenhum ajuste para aplicar. Me diga o que quer mudar ou confirme com "SIM".'
+
+    return "\n".join([
+        "Ajustei conforme solicitado:",
+        "",
+        *changes,
+        "",
+        'Me responda "SIM" para confirmar a lista atualizada ou diga o que mais precisa ajustar.',
+    ])
+
+
 def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str:
     document_type = analysis.get("document_type") or fallback_type
     summary = (analysis.get("summary") or "").strip()
