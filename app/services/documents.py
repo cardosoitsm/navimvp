@@ -34,6 +34,11 @@ SKIP_DOCUMENT_WORDS = {"pular", "depois", "agora nao", "nao"}
 START_DOCUMENT_WORDS = {"sim", "s", "quero", "vamos", "enviar"}
 SUPPORTED_MEDIA_TYPES = {"image/jpeg", "image/png", "image/webp", "application/pdf"}
 
+# Maximum acceptable gap between effective_candidates and gpt_classified before a retry is triggered.
+# A value of 1 means one missed transaction is tolerated (common for summary/total lines
+# that pass the candidate filter but are excluded during normalization).
+COMPLETENESS_TOLERANCE = 1
+
 
 def _normalize_text(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", text.lower().strip())
@@ -297,9 +302,10 @@ def _is_non_transactional(description: str) -> bool:
     return any(d.startswith(prefix) for prefix in _NON_TRANSACTION_PREFIXES)
 
 
-def _normalize_statement_rows(rows: Any) -> list[dict[str, Any]]:
+def _normalize_statement_rows(rows: Any) -> tuple[list[dict[str, Any]], int]:
+    """Normalize GPT-returned statement rows. Returns (normalized_rows, filtered_count)."""
     if not isinstance(rows, list):
-        return []
+        return [], 0
 
     normalized_rows: list[dict[str, Any]] = []
     filtered_count = 0
@@ -382,7 +388,7 @@ def _normalize_statement_rows(rows: Any) -> list[dict[str, Any]]:
         max_desc_len = max(len(r["description"]) for r in normalized_rows)
         logger.info("doc_normalize_rows count=%d max_description_len=%d", len(normalized_rows), max_desc_len)
 
-    return normalized_rows
+    return normalized_rows, filtered_count
 
 
 def _derive_statement_entries(statement_rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -887,7 +893,7 @@ def _extract_scanned_pdf_with_openai(
     analysis["document_type"] = analysis.get("document_type") or hinted_type
     analysis["_pages_included"] = pages_included
     analysis["_total_pages"] = total_pages
-    analysis["statement_rows"] = _normalize_statement_rows(analysis.get("statement_rows"))
+    analysis["statement_rows"], _ = _normalize_statement_rows(analysis.get("statement_rows"))
     derived_credit, derived_debit = _derive_statement_entries(analysis["statement_rows"])
     analysis["credit_entries"] = derived_credit or _normalize_statement_entries(analysis.get("credit_entries"))
     analysis["debit_entries"] = derived_debit or _normalize_statement_entries(analysis.get("debit_entries"))
@@ -1436,18 +1442,32 @@ def _extract_document_analysis(
                     logger.warning("doc_gpt_description_long pre_normalize len=%d preview=%.100s", len(d), d)
         logger.info("doc_gpt_rows_raw count=%d", len(raw_rows))
 
-    analysis["statement_rows"] = _normalize_statement_rows(analysis.get("statement_rows"))
+    analysis["statement_rows"], post_filter_count = _normalize_statement_rows(analysis.get("statement_rows"))
     derived_credit_entries, derived_debit_entries = _derive_statement_entries(analysis["statement_rows"])
     analysis["credit_entries"] = derived_credit_entries or _normalize_statement_entries(analysis.get("credit_entries"))
     analysis["debit_entries"] = derived_debit_entries or _normalize_statement_entries(analysis.get("debit_entries"))
 
-    # ETAPA 5: Completeness verification — retry once if GPT returned fewer entries than expected
+    # ETAPA 5: Completeness verification — retry once if GPT returned significantly fewer than expected.
+    # effective_candidates excludes non-transaction lines (headers, balance rows, etc.) already filtered
+    # during normalisation, so the comparison is apples-to-apples.
     gpt_count = len(analysis["statement_rows"])
+    effective_candidates = raw_count - post_filter_count
     analysis["_raw_candidates"] = raw_count
-    if raw_count > 0 and gpt_count < raw_count:
+    analysis["_effective_candidates"] = effective_candidates
+    needs_retry = raw_count > 0 and gpt_count < (effective_candidates - COMPLETENESS_TOLERANCE)
+    logger.info(
+        "doc_completeness raw_candidates=%d filtered=%d effective=%d gpt_classified=%d tolerance=%d retry=%s",
+        raw_count,
+        post_filter_count,
+        effective_candidates,
+        gpt_count,
+        COMPLETENESS_TOLERANCE,
+        needs_retry,
+    )
+    if needs_retry:
         logger.warning(
-            "doc_completeness_mismatch raw_candidates=%d gpt_classified=%d hinted_type=%s — retrying",
-            raw_count,
+            "doc_completeness_mismatch effective_candidates=%d gpt_classified=%d hinted_type=%s — retrying",
+            effective_candidates,
             gpt_count,
             hinted_type,
         )
@@ -1460,10 +1480,11 @@ def _extract_document_analysis(
                         "role": "user",
                         "content": (
                             f"ATENCAO: na tentativa anterior retornei {gpt_count} lancamentos, "
-                            f"mas o texto contem aproximadamente {raw_count} linhas com data. "
-                            "Retorne TODOS os lancamentos — nao descarte nenhum, "
-                            "mesmo creditos de rendimento, valores pequenos ou lancamentos sem categoria clara. "
-                            "Cada linha com data no texto deve gerar uma entrada em statement_rows.\n\n"
+                            f"mas o documento contem aproximadamente {effective_candidates} lancamentos. "
+                            "Inclua TODOS os lancamentos sem excecao, de qualquer valor e de qualquer natureza "
+                            "(debitos, creditos, rendimentos, estornos, taxas). "
+                            "Nunca descarte lancamentos por serem de valor baixo ou por serem de natureza diferente. "
+                            "Cada linha com data e valor no documento deve gerar uma entrada em statement_rows.\n\n"
                             f"{anonymized_text}"
                         ),
                     },
@@ -1471,7 +1492,7 @@ def _extract_document_analysis(
             )
             retry_content = retry_response.choices[0].message.content or "{}"
             retry_analysis = _parse_openai_json(retry_content)
-            retry_rows = _normalize_statement_rows(retry_analysis.get("statement_rows"))
+            retry_rows, _ = _normalize_statement_rows(retry_analysis.get("statement_rows"))
             if len(retry_rows) > gpt_count:
                 logger.info(
                     "doc_retry_improved gpt_before=%d gpt_after=%d",
@@ -1486,6 +1507,8 @@ def _extract_document_analysis(
                             "detected_income", "income_description", "income_confidence", "summary"):
                     if retry_analysis.get(key) is not None and analysis.get(key) is None:
                         analysis[key] = retry_analysis[key]
+            else:
+                logger.info("doc_completeness_within_tolerance gpt=%d effective=%d", gpt_count, effective_candidates)
         except Exception as exc:
             logger.warning("doc_retry_failed: %s", exc)
 
@@ -1697,7 +1720,7 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
     income_description = (analysis.get("income_description") or "").strip()
     income_confidence = analysis.get("income_confidence")
     income_kind = analysis.get("income_kind")
-    statement_rows = _normalize_statement_rows(analysis.get("statement_rows"))
+    statement_rows, _ = _normalize_statement_rows(analysis.get("statement_rows"))
     credit_entries = _normalize_statement_entries(analysis.get("credit_entries"))
     debit_entries = _normalize_statement_entries(analysis.get("debit_entries"))
     invoice_total = _safe_float(analysis.get("invoice_total"))
