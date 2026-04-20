@@ -122,6 +122,11 @@ CARD_INVOICE_PENDING
   Aceita: mídia; "pular" avança para o próximo cartão.
       │
       ▼
+INVOICE_REVIEW_PENDING
+  Após processar a última fatura, exibe os lançamentos extraídos e aguarda confirmação.
+  Aceita: "sim"/"ok" confirma e avança; qualquer outro texto é tratado como ajuste (igual ao STATEMENT_REVIEW_PENDING).
+      │
+      ▼
 DOCUMENT_ONBOARDING_PENDING
   Convida para enviar extrato ou fatura caso ainda não tenha sido enviado.
   Aceita: mídia, "sim", "pular".

@@ -2010,6 +2010,45 @@ def get_latest_extrato_analysis(user_id: int) -> dict[str, Any] | None:
         return None
 
 
+def get_latest_fatura_analysis(user_id: int) -> dict[str, Any] | None:
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            """
+            SELECT extracted_json FROM documentos_financeiros
+            WHERE user_id = %s AND tipo_documento = 'fatura_cartao'
+              AND extracted_json IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        )
+        row = cursor.fetchone()
+    if not row:
+        return None
+    try:
+        return json.loads(row[0])
+    except Exception:
+        return None
+
+
+def mark_fatura_reviewed(user_id: int) -> None:
+    with get_cursor() as (conn, cursor):
+        cursor.execute(
+            """
+            UPDATE documentos_financeiros
+            SET revisado = TRUE
+            WHERE id = (
+                SELECT id FROM documentos_financeiros
+                WHERE user_id = %s AND tipo_documento = 'fatura_cartao'
+                ORDER BY created_at DESC
+                LIMIT 1
+            )
+            """,
+            (user_id,),
+        )
+        conn.commit()
+
+
 def process_stored_document(
     document_id: int,
     user_id: int,

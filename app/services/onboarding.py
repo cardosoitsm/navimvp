@@ -18,6 +18,7 @@ CARD_COUNT_PENDING = "card_count_pending"
 CARD_NAMES_PENDING = "card_names_pending"
 CARD_DETAILS_PENDING = "card_details_pending"
 CARD_INVOICE_PENDING = "card_invoice_pending"
+INVOICE_REVIEW_PENDING = "invoice_review_pending"
 DOCUMENT_ONBOARDING_PENDING = "document_onboarding_pending"
 ONBOARDING_COMPLETE = "onboarding_complete"
 
