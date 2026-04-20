@@ -500,6 +500,22 @@ def _score_page_financial_density(text: str) -> int:
 _DATE_RE = re.compile(r'\b\d{2}/\d{2}/\d{2,4}\b')
 _AMOUNT_RE = re.compile(r'(?:R\$\s*)?\d{1,3}(?:[.\s]\d{3})*[,]\d{2}|\b\d+[,]\d{2}\b')
 
+# Lines that contain a date+amount but are NOT real transactions (headers, summaries,
+# balance lines, period delimiters). Matching any of these keywords disqualifies the line.
+_HEADER_LINE_RE = re.compile(
+    r'(?:'
+    r'per[íi]odo'                        # "Período: 08/04 a 15/04"
+    r'|data\s+de\s+d[eé]bito'            # "Data de débito de juros: 24/04 R$39,06"
+    r'|saldo\s+(?:de\s+conta|em\b|final|anterior|atual)'  # "Saldo de conta em 15/04"
+    r'|(?:^|\s)juros\b'                  # "Juros: ..."
+    r'|iof\b'                            # "IOF: ..."
+    r'|provis[ãa]o'                      # "Provisão de encargos"
+    r'|encargos'                         # "encargos a debitar"
+    r'|limite\s+da?\s+conta'             # "Limite da conta"
+    r')',
+    re.IGNORECASE,
+)
+
 _COST_TYPE_DISPLAY: dict[str, str] = {
     "fixo": "fixo",
     "variavel": "variável",
@@ -514,15 +530,21 @@ def _format_cost_type(tipo_custo: str) -> str:
 
 
 def _count_raw_transaction_candidates(text: str) -> int:
-    """Count lines that have both a date (dd/mm/yy|yyyy) and a BRL monetary value.
+    """Count lines that have both a date (dd/mm/yy|yyyy) and a BRL monetary value,
+    excluding known header/summary patterns (period delimiters, balance lines, etc.).
 
-    Requiring both date and amount on the same line avoids counting header rows,
-    balance/summary lines, and broken pdfplumber wraps that contain only dates.
+    Two-date lines (e.g. "Período: 01/04 a 30/04") are also excluded because a
+    real transaction never spans two dates on the same line.
     """
     count = 0
     for line in text.splitlines():
-        if _DATE_RE.search(line) and _AMOUNT_RE.search(line):
-            count += 1
+        if not (_DATE_RE.search(line) and _AMOUNT_RE.search(line)):
+            continue
+        if len(_DATE_RE.findall(line)) > 1:
+            continue  # period header — two dates, not a transaction
+        if _HEADER_LINE_RE.search(line):
+            continue  # balance/summary/fee line
+        count += 1
     return count
 
 
