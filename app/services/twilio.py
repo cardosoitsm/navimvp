@@ -111,6 +111,24 @@ def _split_message(text: str, max_len: int = _WHATSAPP_MAX_CHARS) -> list[str]:
     return parts or [text[:max_len]]
 
 
+def responder_split(numero: str, mensagem: str) -> None:
+    """Send a long message as multiple sequential WhatsApp messages.
+
+    Each part is prefixed with '(N/M)' when there is more than one part.
+    A 0.5 s delay is added between parts to preserve delivery order.
+    """
+    import time as _time
+
+    parts = _split_message(mensagem, max_len=_WHATSAPP_MAX_CHARS - 8)
+    total = len(parts)
+    for i, part in enumerate(parts, 1):
+        body = f"({i}/{total})\n{part}" if total > 1 else part
+        responder(numero, body)
+        if i < total:
+            _time.sleep(0.5)
+    logger.info("msg_split_sent parts=%d total_len=%d", total, len(mensagem))
+
+
 def build_twiml(message: str | list[str]) -> str:
     if isinstance(message, list):
         chunks: list[str] = []

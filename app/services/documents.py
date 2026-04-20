@@ -2023,7 +2023,7 @@ def process_stored_document(
         logger.info("doc_processing_done document_id=%d user_id=%d", document_id, user_id)
         if on_complete_numero:
             from app.services.onboarding import set_onboarding_state
-            from app.services.twilio import responder
+            from app.services.twilio import responder_split
             import time as _time
             if on_complete_state:
                 set_onboarding_state(user_id, on_complete_state)
@@ -2037,7 +2037,7 @@ def process_stored_document(
                 if _delay:
                     _time.sleep(_delay)
                 try:
-                    responder(on_complete_numero, proactive_msg)
+                    responder_split(on_complete_numero, proactive_msg)
                     logger.info(
                         "doc_proactive_ok document_id=%d user_id=%d attempt=%d",
                         document_id, user_id, _attempt,
