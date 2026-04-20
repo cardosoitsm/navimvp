@@ -500,6 +500,18 @@ def _score_page_financial_density(text: str) -> int:
 _DATE_RE = re.compile(r'\b\d{2}/\d{2}/\d{2,4}\b')
 _AMOUNT_RE = re.compile(r'(?:R\$\s*)?\d{1,3}(?:[.\s]\d{3})*[,]\d{2}|\b\d+[,]\d{2}\b')
 
+_COST_TYPE_DISPLAY: dict[str, str] = {
+    "fixo": "fixo",
+    "variavel": "variável",
+    "rendimento": "rendimento",
+    "credito": "crédito",
+}
+
+
+def _format_cost_type(tipo_custo: str) -> str:
+    """Return a user-facing, accented label for a tipo_custo internal value."""
+    return _COST_TYPE_DISPLAY.get((tipo_custo or "").lower().strip(), tipo_custo)
+
 
 def _count_raw_transaction_candidates(text: str) -> int:
     """Count lines that have both a date (dd/mm/yy|yyyy) and a BRL monetary value.
@@ -1562,7 +1574,7 @@ def _render_statement_rows(rows: list[dict[str, Any]]) -> list[str]:
             valor_str = f"-R${row['debit']:.2f}"
         else:
             valor_str = ""
-        tipo = row.get("tipo_custo") or ""
+        tipo = _format_cost_type(row.get("tipo_custo") or "")
         cat = row.get("categoria_sugerida") or ""
         subcat = row.get("subcategoria_sugerida") or ""
         cat_display = f"{cat}/{subcat}" if cat and subcat else cat
@@ -1600,7 +1612,7 @@ def _build_adjustments_applied_message(
             new_sub = row.get("subcategoria_sugerida") or "sem subcategoria"
             parts.append(f"subcategoria: {new_sub}")
         if orig.get("tipo_custo") != row.get("tipo_custo"):
-            parts.append(f"tipo: {row.get('tipo_custo', '')}")
+            parts.append(f"tipo: {_format_cost_type(row.get('tipo_custo', ''))}")
         if parts:
             changes.append(f"- {desc[:50]}: {', '.join(parts)}")
 
