@@ -337,6 +337,17 @@ def _normalize_statement_rows(rows: Any) -> list[dict[str, Any]]:
         categoria_sugerida = str(row.get("categoria_sugerida") or "Outros").strip() or "Outros"
         subcategoria_sugerida = str(row.get("subcategoria_sugerida") or "").strip() or None
 
+        def _safe_int(v: Any) -> int | None:
+            try:
+                return int(v) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+
+        parcela_atual = _safe_int(row.get("parcela_atual"))
+        parcelas_totais = _safe_int(row.get("parcelas_totais"))
+        if parcela_atual is not None and parcelas_totais is not None and not (1 <= parcela_atual <= parcelas_totais <= 360):
+            parcela_atual = parcelas_totais = None
+
         normalized_rows.append(
             {
                 "date": _normalize_date(row.get("date")),
@@ -349,6 +360,8 @@ def _normalize_statement_rows(rows: Any) -> list[dict[str, Any]]:
                 "tipo_custo": tipo_custo,
                 "categoria_sugerida": categoria_sugerida,
                 "subcategoria_sugerida": subcategoria_sugerida,
+                "parcela_atual": parcela_atual,
+                "parcelas_totais": parcelas_totais,
                 "confirmado": False,
             }
         )
@@ -769,7 +782,7 @@ def _build_document_analysis_system_prompt(income_instructions: str, hinted_type
         '"account_limit":numero ou null,'
         '"pending_charges":numero ou null,'
         '"charges_debit_date":"YYYY-MM-DD" ou null,'
-        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"texto EXATAMENTE como no documento","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low","tipo_custo":"fixo|variavel|rendimento|credito","categoria_sugerida":"nome da categoria com acentuação correta no idioma do usuário ou Outros","subcategoria_sugerida":"subcategoria especifica com acentuação correta no idioma do usuário ou null","confirmado":false}] — INCLUA ABSOLUTAMENTE TODOS os lancamentos sem filtrar,'
+        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"texto EXATAMENTE como no documento","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low","tipo_custo":"fixo|variavel|rendimento|credito","categoria_sugerida":"nome da categoria com acentuação correta no idioma do usuário ou Outros","subcategoria_sugerida":"subcategoria especifica com acentuação correta no idioma do usuário ou null","parcela_atual":numero inteiro ou null,"parcelas_totais":numero inteiro ou null,"confirmado":false}] — INCLUA ABSOLUTAMENTE TODOS os lancamentos sem filtrar. Para transacoes parceladas (ex: Parc 02/12, Parcela 2/12, 03/06, 2 de 6), extraia parcela_atual e parcelas_totais como inteiros; para compras a vista retorne null para ambos,'
         '"credit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}] (TODOS os creditos: remuneracao de aplicacao, rendimento, estorno, transferencia — mesmo R$0,01),'
         '"debit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}] (TODOS os debitos: cartao de debito, PIX enviado, tarifa, compra — mesmo valores pequenos),'
         '"estimated_fixed_expenses":numero ou null,'
@@ -1600,7 +1613,10 @@ def _render_statement_rows(rows: list[dict[str, Any]]) -> list[str]:
         cat = row.get("categoria_sugerida") or ""
         subcat = row.get("subcategoria_sugerida") or ""
         cat_display = f"{cat}/{subcat}" if cat and subcat else cat
-        meta = " | ".join(part for part in [tipo, cat_display] if part)
+        parcela_str = ""
+        if row.get("parcela_atual") is not None and row.get("parcelas_totais") is not None:
+            parcela_str = f"parcela {row['parcela_atual']:02d}/{row['parcelas_totais']:02d}"
+        meta = " | ".join(part for part in [tipo, cat_display, parcela_str] if part)
         suffix = f" ({meta})" if meta else ""
         val_part = f": {valor_str}" if valor_str else ""
         result.append(f"- {date_prefix}{row['description']}{val_part}{suffix}")
