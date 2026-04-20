@@ -41,12 +41,14 @@ from app.services.documents import (
     document_upload_retry_prompt,
     get_incoming_media,
     get_latest_extrato_analysis,
+    get_latest_fatura_analysis,
     has_document_type,
     is_document_processing,
     is_invoice_followup_message,
     is_document_onboarding_completed,
     is_waiting_for_document,
     mark_extrato_reviewed,
+    mark_fatura_reviewed,
     process_stored_document,
     register_received_document,
     save_extrato_adjustments,
@@ -69,6 +71,7 @@ from app.services.onboarding import (
     CARD_COUNT_PENDING,
     COST_REVIEW_PENDING,
     CARD_INVOICE_PENDING,
+    INVOICE_REVIEW_PENDING,
     CARD_NAMES_PENDING,
     DOCUMENT_ONBOARDING_PENDING,
     advance_card_progress,
@@ -357,6 +360,50 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 resposta = _build_analysis_message(analysis, "extrato")
         else:
             resposta = _build_analysis_message(analysis, "extrato")
+        return Response(content=build_twiml(resposta), media_type="application/xml")
+
+    if onboarding_state == INVOICE_REVIEW_PENDING:
+        if is_document_processing(user_id):
+            resposta = "Ainda estou analisando sua fatura, aguarde um momento..."
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        if is_confirmation_yes(msg_lower):
+            mark_fatura_reviewed(user_id)
+            _reviewed = is_statement_already_reviewed(user_id)
+            next_state = (
+                COST_REVIEW_PENDING
+                if has_cost_review_candidates(user_id) and not is_cost_review_completed(user_id) and not _reviewed
+                else CARD_COUNT_PENDING
+            )
+            set_onboarding_state(user_id, next_state)
+            resposta = "Ótimo! Lançamentos da fatura confirmados."
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        analysis = get_latest_fatura_analysis(user_id)
+        if not analysis:
+            _reviewed = is_statement_already_reviewed(user_id)
+            next_state = (
+                COST_REVIEW_PENDING
+                if has_cost_review_candidates(user_id) and not is_cost_review_completed(user_id) and not _reviewed
+                else CARD_COUNT_PENDING
+            )
+            set_onboarding_state(user_id, next_state)
+            resposta = "Não consegui extrair os lançamentos da fatura."
+            return Response(content=build_twiml(resposta), media_type="application/xml")
+
+        existing_rows = analysis.get("statement_rows") or []
+        if existing_rows and mensagem:
+            updated_rows, adj_error = apply_user_adjustments(mensagem, existing_rows, user_id)
+            if adj_error:
+                resposta = adj_error
+            elif updated_rows != existing_rows:
+                analysis["statement_rows"] = updated_rows
+                save_extrato_adjustments(user_id, updated_rows)
+                resposta = _build_adjustments_applied_message(updated_rows, existing_rows)
+            else:
+                resposta = _build_analysis_message(analysis, "fatura_cartao")
+        else:
+            resposta = _build_analysis_message(analysis, "fatura_cartao")
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
     if onboarding_state == BUDGET_SETUP_PENDING or not is_budget_onboarding_completed(user_id):
@@ -669,15 +716,15 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                     )
                 else:
                     card_name_display = str(current_card["nome_cartao"])
-                    set_onboarding_state(user_id, COST_REVIEW_PENDING)
                     _register_document_upload(
                         "fatura_cartao",
                         on_complete_numero=numero,
+                        on_complete_state=INVOICE_REVIEW_PENDING,
                     )
                     resposta = (
                         f"Recebi sua fatura do {card_name_display}. "
                         "Estou analisando os lançamentos agora, isso leva alguns instantes...\n\n"
-                        "Assim que terminar, te mando o que identifiquei."
+                        "Assim que terminar, te mando a lista completa para você revisar."
                     )
                 return Response(content=build_twiml(resposta), media_type="application/xml")
 
