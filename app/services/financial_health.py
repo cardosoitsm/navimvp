@@ -52,7 +52,23 @@ def build_financial_health_message(user_id: int) -> str:
         )
         monthly_spent = float(cursor.fetchone()[0])
 
-    if not profile and confirmed_fixed_costs == 0 and invoice_total == 0 and monthly_spent == 0:
+        cursor.execute(
+            """
+            SELECT COALESCE(SUM(valor * (parcelas_totais - parcela_atual)), 0),
+                   COALESCE(MAX(parcelas_totais - parcela_atual), 0)
+            FROM transacoes
+            WHERE user_id = %s
+              AND parcelas_totais IS NOT NULL
+              AND parcela_atual IS NOT NULL
+              AND parcela_atual < parcelas_totais
+            """,
+            (user_id,),
+        )
+        row_inst = cursor.fetchone()
+        future_installments = float(row_inst[0])
+        max_remaining_months = int(row_inst[1])
+
+    if not profile and confirmed_fixed_costs == 0 and invoice_total == 0 and monthly_spent == 0 and future_installments == 0:
         return (
             "Ainda não tenho informação suficiente para avaliar sua saúde financeira.\n\n"
             "Se você quiser, posso começar olhando seu extrato, suas faturas e seus limites."
@@ -64,7 +80,7 @@ def build_financial_health_message(user_id: int) -> str:
     card_pressure = profile[3] if profile and profile[3] else None
 
     fixed_costs = confirmed_fixed_costs or estimated_fixed_expenses
-    committed_base = fixed_costs + invoice_total
+    committed_base = fixed_costs + invoice_total + future_installments
 
     if detected_income and detected_income > 0:
         commitment_ratio = committed_base / detected_income
@@ -94,6 +110,11 @@ def build_financial_health_message(user_id: int) -> str:
         linhas.append(f"- faturas atuais somadas: {format_brl(invoice_total)}")
     if monthly_spent > 0:
         linhas.append(f"- gastos lançados neste mês: {format_brl(monthly_spent)}")
+    if future_installments > 0:
+        linhas.append(
+            f"- compromissos futuros de parcelamentos: {format_brl(future_installments)} "
+            f"nos próximos {max_remaining_months} meses"
+        )
 
     linhas.append("")
     if status == "mais apertada":

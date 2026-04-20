@@ -253,6 +253,14 @@ SCHEMA_STATEMENTS = (
     ALTER TABLE usuarios
     ADD COLUMN IF NOT EXISTS locale VARCHAR(10) NOT NULL DEFAULT 'pt-BR'
     """,
+    """
+    ALTER TABLE transacoes
+    ADD COLUMN IF NOT EXISTS parcela_atual INTEGER NULL
+    """,
+    """
+    ALTER TABLE transacoes
+    ADD COLUMN IF NOT EXISTS parcelas_totais INTEGER NULL
+    """,
 )
 
 

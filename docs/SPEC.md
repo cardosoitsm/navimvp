@@ -48,7 +48,7 @@ O **Navi** é um assistente financeiro pessoal via **WhatsApp**. O usuário não
 | Tabela | Descrição |
 |---|---|
 | `usuarios` | Contas de usuário. WhatsApp users usam o número como `email` e senha gerada automaticamente. |
-| `transacoes` | Despesas e receitas registradas. Colunas: `tipo`, `categoria`, `valor`, `user_id`, `created_at`. |
+| `transacoes` | Despesas e receitas registradas. Colunas: `tipo`, `categoria`, `valor`, `user_id`, `created_at`, `parcela_atual` (int nullable), `parcelas_totais` (int nullable). Para compras à vista ambos são NULL; para parcelamentos registram a parcela corrente e o total. |
 | `confirmacoes_pendentes` | Transação aguardando confirmação explícita do usuário (uma por vez, por usuário). |
 | `configuracoes_usuario` | Estado do onboarding e flags de progresso: `onboarding_state`, `pending_card_total`, `pending_card_index`, `orcamento_onboarding_concluido`, `documentos_onboarding_concluido`, `aguardando_documento`, `custos_onboarding_concluido`, `ultimo_topico`, `ultimo_cartao_id`. |
 | `orcamentos` | Limites mensais por categoria. Chave primária composta `(user_id, categoria)`. |
@@ -486,6 +486,19 @@ ONBOARDING_COMPLETE
 - Resposta deve ser TwiML: `<Response><Message>texto</Message></Response>`.
 - Webhook fallback configurado para retornar mensagem de instabilidade.
 - Envio proativo via API REST do Twilio (para notificações fora do ciclo de request/response).
+
+### Detecção de parcelamentos em faturas
+
+O GPT é instruído a identificar padrões de parcelamento comuns em faturas brasileiras:
+- `Parc 02/12`, `Parcela 2/12`, `02/12`, `(2 de 12)`, `PARC 02/12`
+
+Campos retornados por lançamento: `parcela_atual` (int) e `parcelas_totais` (int), ou `null` para compras à vista.
+
+Exibição: `- 2026-04-08 Magazine Luiza: -R$150.00 (variável | Outros | parcela 02/12)`
+
+Saúde financeira inclui compromissos futuros: `SUM(valor × (parcelas_totais − parcela_atual))` para todos os parcelamentos em aberto.
+
+---
 
 ### OpenAI (GPT-4.1-mini)
 Usado em 4 contextos diferentes:
