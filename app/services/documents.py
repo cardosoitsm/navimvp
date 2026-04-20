@@ -1601,7 +1601,7 @@ def _render_statement_rows(rows: list[dict[str, Any]]) -> list[str]:
     if not rows:
         return []
     result: list[str] = ["", f"Lançamentos encontrados ({len(rows)} no total):"]
-    for row in rows[:20]:
+    for row in rows:
         date_prefix = f"{row['date']} " if row.get("date") else ""
         if row.get("credit") is not None:
             valor_str = f"+R${row['credit']:.2f}"
@@ -1620,8 +1620,6 @@ def _render_statement_rows(rows: list[dict[str, Any]]) -> list[str]:
         suffix = f" ({meta})" if meta else ""
         val_part = f": {valor_str}" if valor_str else ""
         result.append(f"- {date_prefix}{row['description']}{val_part}{suffix}")
-    if len(rows) > 20:
-        result.append(f"- ...e mais {len(rows) - 20} lançamentos.")
     result.extend([
         "",
         'Me responda "SIM" para confirmar esses lançamentos, ou me diga o que precisa ajustar.',
