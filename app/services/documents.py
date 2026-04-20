@@ -356,6 +356,11 @@ def _normalize_statement_rows(rows: Any) -> tuple[list[dict[str, Any]], int]:
 
         referencia_bancaria = str(row.get("referencia_bancaria") or "").strip() or None
 
+        # Structural validation only: ISO 4217 is a 3-letter uppercase code.
+        # No semantic interpretation — GPT decides which currency is correct.
+        moeda_raw = str(row.get("moeda") or "").strip().upper()
+        moeda = moeda_raw if (len(moeda_raw) == 3 and moeda_raw.isalpha()) else "BRL"
+
         if len(description) > 200:
             logger.warning(
                 "doc_description_long len=%d preview=%.100s",
@@ -363,16 +368,27 @@ def _normalize_statement_rows(rows: Any) -> tuple[list[dict[str, Any]], int]:
                 description,
             )
 
+        resolved_confidence = confidence if confidence in {"high", "medium", "low"} else "medium"
+        chosen_value = (abs(credit) if credit is not None else None) or (abs(debit) if debit is not None else None)
+        if chosen_value is not None:
+            logger.info(
+                "transaction_value value=%.2f currency=%s confidence=%s",
+                chosen_value,
+                moeda,
+                resolved_confidence,
+            )
+
         normalized_rows.append(
             {
                 "date": _normalize_date(row.get("date")),
                 "description": description,
                 "referencia_bancaria": referencia_bancaria,
+                "moeda": moeda,
                 "credit": abs(credit) if credit is not None else None,
                 "debit": abs(debit) if debit is not None else None,
                 "balance": balance,
                 "raw_amount_text": raw_amount_text or None,
-                "confidence": confidence if confidence in {"high", "medium", "low"} else "medium",
+                "confidence": resolved_confidence,
                 "tipo_custo": tipo_custo,
                 "categoria_sugerida": categoria_sugerida,
                 "subcategoria_sugerida": subcategoria_sugerida,
@@ -801,7 +817,7 @@ def _build_document_analysis_system_prompt(income_instructions: str, hinted_type
         '"account_limit":numero ou null,'
         '"pending_charges":numero ou null,'
         '"charges_debit_date":"YYYY-MM-DD" ou null,'
-        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"descrição semântica da transação — o texto que identifica o comerciante, pagador ou natureza da operação; remova códigos internos do banco, números de documentos, referências técnicas ou ruído visual que não agregue significado ao usuário (ex: se o texto bruto for \'COMPRA DEBITO LOJA XYZ DOC 098765\', retorne \'COMPRA DEBITO LOJA XYZ\'; se for \'TRANSFERENCIA PARA JOAO REF 12345\', retorne \'TRANSFERENCIA PARA JOAO\')","referencia_bancaria":"código de documento, chave PIX ou referência técnica do banco identificada no texto bruto, ou null","credit":numero ou null,"debit":numero ou null,"balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low","tipo_custo":"fixo|variavel|rendimento|credito","categoria_sugerida":"nome da categoria com acentuação correta no idioma do usuário ou Outros","subcategoria_sugerida":"subcategoria especifica com acentuação correta no idioma do usuário ou null","parcela_atual":numero inteiro ou null,"parcelas_totais":numero inteiro ou null,"confirmado":false}] — INCLUA ABSOLUTAMENTE TODOS os lancamentos sem filtrar. Para transacoes parceladas (ex: Parc 02/12, Parcela 2/12, 03/06, 2 de 6), extraia parcela_atual e parcelas_totais como inteiros; para compras a vista retorne null para ambos,'
+        '"statement_rows":[{"date":"YYYY-MM-DD ou texto","description":"descrição semântica da transação — o texto que identifica o comerciante, pagador ou natureza da operação; remova códigos internos do banco, números de documentos, referências técnicas ou ruído visual que não agregue significado ao usuário (ex: se o texto bruto for \'COMPRA DEBITO LOJA XYZ DOC 098765\', retorne \'COMPRA DEBITO LOJA XYZ\'; se for \'TRANSFERENCIA PARA JOAO REF 12345\', retorne \'TRANSFERENCIA PARA JOAO\')","referencia_bancaria":"código de documento, chave PIX ou referência técnica do banco identificada no texto bruto, ou null","credit":numero decimal ou null,"debit":numero decimal ou null,"moeda":"código ISO 4217 da moeda do valor em credit/debit, ex: BRL, USD, EUR — sempre o da moeda efetivamente debitada/creditada na conta","balance":numero ou null,"raw_amount_text":"texto ou null","confidence":"high|medium|low","tipo_custo":"fixo|variavel|rendimento|credito","categoria_sugerida":"nome da categoria com acentuação correta no idioma do usuário ou Outros","subcategoria_sugerida":"subcategoria especifica com acentuação correta no idioma do usuário ou null","parcela_atual":numero inteiro ou null,"parcelas_totais":numero inteiro ou null,"confirmado":false}] — INCLUA ABSOLUTAMENTE TODOS os lancamentos sem filtrar. Para transacoes parceladas (ex: Parc 02/12, Parcela 2/12, 03/06, 2 de 6), extraia parcela_atual e parcelas_totais como inteiros; para compras a vista retorne null para ambos,'
         '"credit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}] (TODOS os creditos: remuneracao de aplicacao, rendimento, estorno, transferencia — mesmo R$0,01),'
         '"debit_entries":[{"date":"YYYY-MM-DD ou texto","description":"texto","amount":numero}] (TODOS os debitos: cartao de debito, PIX enviado, tarifa, compra — mesmo valores pequenos),'
         '"estimated_fixed_expenses":numero ou null,'
@@ -809,6 +825,7 @@ def _build_document_analysis_system_prompt(income_instructions: str, hinted_type
         "Para faturas de cartao: credit_limit e o limite total do cartao (campo 'limite', 'limite do cartao' ou similar). "
         "best_purchase_day e o melhor dia para compras (campo 'melhor dia para compras', 'data de fechamento' menos alguns dias, ou similar). "
         "Se nao estiver explicito, retorne null. "
+        "MULTIPLAS COLUNAS DE VALOR: extratos e faturas podem conter varias colunas numericas por transacao — valores em moedas distintas, saldos, conversoes, codigos de documento. Para cada lancamento, identifique qual e o VALOR EFETIVO debitado ou creditado na conta do usuario (nao o valor em moeda estrangeira, nao o saldo resultante, nao o codigo de documento). Coloque esse valor em credit ou debit e o codigo ISO 4217 da moeda correspondente no campo moeda. Se voce nao tiver certeza de qual valor e o correto, retorne confidence='low'. "
         f"{income_instructions}"
     )
     if categories_hint:
@@ -1646,12 +1663,15 @@ def _render_statement_rows(rows: list[dict[str, Any]]) -> list[str]:
     if not rows:
         return []
     result: list[str] = ["", f"Lançamentos encontrados ({len(rows)} no total):"]
+    low_confidence_count = 0
     for row in rows:
         date_prefix = f"{row['date']} " if row.get("date") else ""
+        moeda = row.get("moeda") or "BRL"
+        currency_prefix = f"{moeda} " if moeda != "BRL" else ""
         if row.get("credit") is not None:
-            valor_str = f"+R${row['credit']:.2f}"
+            valor_str = f"+{currency_prefix}R${row['credit']:.2f}"
         elif row.get("debit") is not None:
-            valor_str = f"-R${row['debit']:.2f}"
+            valor_str = f"-{currency_prefix}R${row['debit']:.2f}"
         else:
             valor_str = ""
         tipo = _format_cost_type(row.get("tipo_custo") or "")
@@ -1661,10 +1681,17 @@ def _render_statement_rows(rows: list[dict[str, Any]]) -> list[str]:
         parcela_str = ""
         if row.get("parcela_atual") is not None and row.get("parcelas_totais") is not None:
             parcela_str = f"parcela {row['parcela_atual']:02d}/{row['parcelas_totais']:02d}"
+        if row.get("confidence") == "low":
+            low_confidence_count += 1
+            parcela_str = f"{parcela_str} ⚠️ confirme o valor" if parcela_str else "⚠️ confirme o valor"
         meta = " | ".join(part for part in [tipo, cat_display, parcela_str] if part)
         suffix = f" ({meta})" if meta else ""
         val_part = f": {valor_str}" if valor_str else ""
         result.append(f"- {date_prefix}{row['description']}{val_part}{suffix}")
+    if low_confidence_count:
+        result.append(
+            f"\n⚠️ {low_confidence_count} lançamento(s) marcado(s) com baixa confiança — por favor, confirme se o valor está correto antes de prosseguir."
+        )
     result.extend([
         "",
         'Me responda "SIM" para confirmar esses lançamentos, ou me diga o que precisa ajustar.',

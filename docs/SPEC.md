@@ -568,6 +568,42 @@ Para suportar `es-ES`, `fr-FR`, `en-US` ou outro locale: basta permitir o novo v
 
 ---
 
+## Princípios de Extração de Valores Monetários
+
+### Responsabilidade do GPT, não do código
+
+O Navi atende múltiplas instituições financeiras (bancos brasileiros e futuramente internacionais) com formatos de extrato e fatura completamente distintos. Por isso, **o código nunca interpreta layout de documento** — toda a lógica de identificação de valores é delegada ao GPT.
+
+### O que o código NUNCA faz
+
+- Não contém regex para detectar padrões monetários como `R$ X,XX` ou `X.XX`
+- Não lista ou detecta nomes de moedas (USD, EUR, BRL) no código
+- Não tem heurística para "o valor é o maior número da linha" ou "o valor é o último número"
+- Não assume separador decimal (vírgula vs ponto) baseado em locale
+- Não assume posição de colunas em tabelas de extrato ou fatura
+
+### O que o código FAZ
+
+- Passa o texto bruto integral ao GPT (sem filtragem de conteúdo)
+- Pede ao GPT que retorne o **valor efetivo** (`credit` ou `debit`) como número decimal e o código de moeda em **ISO 4217** (`moeda`)
+- Valida apenas a estrutura do retorno: número decimal válido, código ISO 4217 de 3 letras
+- Persiste exatamente o que o GPT retornou
+- Se o GPT retornar `confidence: "low"`, exibe ao usuário pedindo confirmação
+
+### Múltiplas colunas de valor
+
+Extratos e faturas podem ter várias colunas numéricas por transação (valor em moeda estrangeira, saldo, conversão, código de documento). O prompt instrui o GPT genericamente:
+> "Para cada lançamento, identifique qual é o VALOR EFETIVO debitado ou creditado na conta do usuário. Coloque esse valor em `credit` ou `debit` e o código ISO 4217 da moeda no campo `moeda`. Se não tiver certeza, retorne `confidence: 'low'`."
+
+### Correção de bugs de valor
+
+Se um valor incorreto for extraído:
+- A causa é sempre no **prompt** (GPT não entendeu o layout)
+- A correção é sempre no **prompt** (melhorar instrução ao GPT)
+- Nunca adicionar lógica de parsing ou heurística no backend
+
+---
+
 ## Variáveis de Ambiente
 
 | Variável | Descrição | Default |
