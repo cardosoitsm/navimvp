@@ -666,7 +666,11 @@ def _extract_pdfplumber_page(page: Any) -> str:
     Tries line-based then text-based table detection so that multi-column
     transaction tables (Date | Description | Debit | Credit | Balance) are
     returned as pipe-separated rows instead of spatially-scrambled text.
-    Falls back to plain extract_text() when no usable table is detected.
+
+    Falls back to extract_text(layout=True) which respects the spatial layout
+    of columns, preventing numeric fragmentation in multi-currency invoices
+    (e.g. "US$ 0,00  R$ 227,48" could become "22" + "7,48" with naive extraction).
+    Last resort is plain extract_text() for pages where layout mode fails.
     """
     for table_settings in (
         {"vertical_strategy": "lines", "horizontal_strategy": "lines"},
@@ -688,6 +692,15 @@ def _extract_pdfplumber_page(page: Any) -> str:
                     rows.append(" | ".join(cells))
         if len(rows) >= 2:
             return "\n".join(rows)
+
+    # layout=True preserves column alignment — prevents values from multi-column
+    # rows (e.g. USD and BRL columns) being re-ordered or split across lines.
+    try:
+        text = page.extract_text(layout=True) or ""
+        if text.strip():
+            return re.sub(r"\s+\n", "\n", text).strip()
+    except Exception:
+        pass
 
     text = page.extract_text() or ""
     return re.sub(r"\s+\n", "\n", text).strip()
