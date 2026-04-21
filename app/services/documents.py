@@ -1649,11 +1649,12 @@ def _render_statement_rows(rows: list[dict[str, Any]], user_locale: str = "pt-BR
     """Render statement_rows as display lines, including header and call-to-action.
 
     Returns an empty list when rows is empty so callers can extend unconditionally.
-    Prepends a blank separator line when non-empty.
+    The header is NOT preceded by a blank line so it stays in the same paragraph as
+    the invoice summary — ensuring it appears in the first split message, not alone.
     """
     if not rows:
         return []
-    result: list[str] = ["", f"Lançamentos encontrados ({len(rows)} no total):"]
+    result: list[str] = [f"Lançamentos encontrados ({len(rows)} no total):"]
     low_confidence_count = 0
     for row in rows:
         raw_date = row.get("date")
