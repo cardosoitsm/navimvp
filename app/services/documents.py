@@ -659,18 +659,48 @@ def _ocr_image_bytes(image_bytes: bytes) -> str:
         return ""
 
 
+def _extract_words_with_y_grouping(page: Any, y_tolerance: float = 3.0) -> str:
+    """
+    Reconstruct page text by grouping words with similar Y into lines.
+
+    extract_text() linearizes the page by reading order and in multi-column
+    layouts (e.g. credit card invoices with DATE | DESC | USD | BRL columns)
+    can split a value mid-number — "R$ 3.542,34" becomes "R$ 3." on one line
+    and "542,34" on another. extract_words() preserves x0/top per word so we
+    can group by Y (±y_tolerance) and order by X, keeping values intact.
+
+    Bank-agnostic: no assumption about column count or positions.
+    """
+    try:
+        words = page.extract_words()
+    except Exception:
+        return ""
+    if not words:
+        return ""
+    words_sorted = sorted(words, key=lambda w: (w["top"], w["x0"]))
+    lines: list[list[dict]] = []
+    for w in words_sorted:
+        if lines and abs(w["top"] - lines[-1][0]["top"]) <= y_tolerance:
+            lines[-1].append(w)
+        else:
+            lines.append([w])
+    return "\n".join(
+        " ".join(w["text"] for w in sorted(line, key=lambda x: x["x0"]))
+        for line in lines
+    ).strip()
+
+
 def _extract_pdfplumber_page(page: Any) -> str:
     """
-    Extract text from a pdfplumber page preserving table row structure.
+    Extract text from a pdfplumber page preserving spatial structure.
 
-    Tries line-based then text-based table detection so that multi-column
-    transaction tables (Date | Description | Debit | Credit | Balance) are
-    returned as pipe-separated rows instead of spatially-scrambled text.
-
-    Falls back to extract_text(layout=True) which respects the spatial layout
-    of columns, preventing numeric fragmentation in multi-currency invoices
-    (e.g. "US$ 0,00  R$ 227,48" could become "22" + "7,48" with naive extraction).
-    Last resort is plain extract_text() for pages where layout mode fails.
+    Strategy chain:
+      1. Table extraction (lines → text) — if the page has ruled or
+         text-aligned tables, return pipe-separated rows.
+      2. Word extraction with Y-grouping — reconstructs lines from
+         positioned words, keeping multi-column values whole.
+      3. Plain extract_text() — last resort; may fragment values but
+         guarantees a non-empty result for unusual layouts.
     """
     for table_settings in (
         {"vertical_strategy": "lines", "horizontal_strategy": "lines"},
@@ -691,17 +721,15 @@ def _extract_pdfplumber_page(page: Any) -> str:
                 if sum(1 for c in cells if c) >= 2:
                     rows.append(" | ".join(cells))
         if len(rows) >= 2:
+            logger.debug("pdf_extraction_strategy strategy=tables")
             return "\n".join(rows)
 
-    # layout=True preserves column alignment — prevents values from multi-column
-    # rows (e.g. USD and BRL columns) being re-ordered or split across lines.
-    try:
-        text = page.extract_text(layout=True) or ""
-        if text.strip():
-            return re.sub(r"\s+\n", "\n", text).strip()
-    except Exception:
-        pass
+    words_text = _extract_words_with_y_grouping(page)
+    if words_text:
+        logger.debug("pdf_extraction_strategy strategy=words")
+        return words_text
 
+    logger.debug("pdf_extraction_strategy strategy=text")
     text = page.extract_text() or ""
     return re.sub(r"\s+\n", "\n", text).strip()
 
