@@ -15,7 +15,7 @@ from starlette.datastructures import FormData
 
 from app.config import get_settings
 from app.db import get_cursor
-from app.services.formatting import format_brl, format_date, format_monetary, format_ptbr_date
+from app.services.formatting import format_date, format_monetary
 from app.services.users import get_user_locale
 from app.services.logger import get_logger
 from app.services.onboarding import (
@@ -1223,6 +1223,7 @@ def _load_invoice_from_recent_documents(user_id: int, selected_card: dict[str, A
 
 
 def build_invoice_status_message(user_id: int, message_text: str) -> str:
+    user_locale = get_user_locale(user_id)
     cards = get_cards(user_id)
     if not cards:
         return "Ainda não encontrei cartões cadastrados por aqui. Se quiser, eu posso te ajudar a cadastrar seus cartões primeiro."
@@ -1282,13 +1283,7 @@ def build_invoice_status_message(user_id: int, message_text: str) -> str:
         document_fallback = _load_invoice_from_recent_documents(user_id, selected_card)
         if document_fallback:
             valor_total, vencimento, pagamento_minimo = document_fallback
-            resposta = [f"A última fatura que tenho salva do {card_name} está em {format_brl(valor_total)}."]
-            vencimento_formatado = format_ptbr_date(vencimento)
-            if vencimento_formatado:
-                resposta.append(f"O vencimento identificado é {vencimento_formatado}.")
-            if pagamento_minimo is not None:
-                resposta.append(f"O pagamento mínimo dela ficou em {format_brl(pagamento_minimo)}.")
-            return "\n\n".join(resposta)
+            return _build_invoice_status_response_v2(card_name, valor_total, vencimento, pagamento_minimo, user_locale)
 
         return (
             f"Ainda não encontrei uma fatura salva para o {card_name}.\n\n"
@@ -1298,14 +1293,7 @@ def build_invoice_status_message(user_id: int, message_text: str) -> str:
     valor_total = float(row[0])
     vencimento = row[1]
     pagamento_minimo = float(row[2]) if row[2] is not None else None
-
-    resposta = [f"A última fatura que tenho salva do {card_name} está em {format_brl(valor_total)}."]
-    vencimento_formatado = _format_ptbr_date(vencimento)
-    if vencimento_formatado:
-        resposta.append(f"O vencimento identificado é {vencimento_formatado}.")
-    if pagamento_minimo is not None:
-        resposta.append(f"O pagamento mínimo dela ficou em {format_brl(pagamento_minimo)}.")
-    return "\n\n".join(resposta)
+    return _build_invoice_status_response_v2(card_name, valor_total, vencimento, pagamento_minimo, user_locale)
 
 
 def is_invoice_followup_message(user_id: int, message_text: str) -> bool:
@@ -1765,9 +1753,9 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str, user_l
         else:
             lines.append("Recebi seu extrato e consegui identificar alguns sinais importantes.")
         if current_balance is not None:
-            lines.append(f"- saldo estimado: R${current_balance:.2f}")
+            lines.append(f"- saldo estimado: {format_monetary(current_balance, 'BRL', user_locale)}")
         if detected_income is not None:
-            lines.append(f"- renda identificada: R${detected_income:.2f}")
+            lines.append(f"- renda identificada: {format_monetary(detected_income, 'BRL', user_locale)}")
             if income_description:
                 lines.append(f"- origem mais provável da renda: {income_description}")
             confidence_label = _format_income_confidence(income_confidence)
@@ -1783,13 +1771,13 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str, user_l
             lines.append(f"- origem observada: {income_description}")
         account_limit = _safe_float(analysis.get("account_limit"))
         if account_limit is not None:
-            lines.append(f"- limite da conta: {format_brl(account_limit)}")
+            lines.append(f"- limite da conta: {format_monetary(account_limit, 'BRL', user_locale)}")
         pending_charges = _safe_float(analysis.get("pending_charges"))
         if pending_charges is not None:
-            lines.append(f"- provisao de encargos (juros/IOF): {format_brl(pending_charges)}")
+            lines.append(f"- provisao de encargos (juros/IOF): {format_monetary(pending_charges, 'BRL', user_locale)}")
             charges_debit_date = analysis.get("charges_debit_date")
             if charges_debit_date:
-                formatted_charges_date = format_ptbr_date(charges_debit_date) or charges_debit_date
+                formatted_charges_date = format_date(str(charges_debit_date), user_locale) or str(charges_debit_date)
                 lines.append(f"- data prevista de debito dos encargos: {formatted_charges_date}")
 
         if statement_rows:
@@ -1798,15 +1786,17 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str, user_l
             if credit_entries:
                 lines.extend(["", f"Créditos identificados ({len(credit_entries)} no total):"])
                 for entry in credit_entries[:10]:
-                    prefix = f"{entry['date']} - " if entry.get("date") else ""
-                    lines.append(f"- {prefix}{entry['description']}: R${entry['amount']:.2f}")
+                    raw_entry_date = entry.get("date")
+                    date_part = f"{format_date(raw_entry_date, user_locale) or raw_entry_date} - " if raw_entry_date else ""
+                    lines.append(f"- {date_part}{entry['description']}: {format_monetary(entry['amount'], 'BRL', user_locale)}")
                 if len(credit_entries) > 10:
                     lines.append(f"- ...e mais {len(credit_entries) - 10} lançamentos de crédito.")
             if debit_entries:
                 lines.extend(["", f"Débitos identificados ({len(debit_entries)} no total):"])
                 for entry in debit_entries[:10]:
-                    prefix = f"{entry['date']} - " if entry.get("date") else ""
-                    lines.append(f"- {prefix}{entry['description']}: R${entry['amount']:.2f}")
+                    raw_entry_date = entry.get("date")
+                    date_part = f"{format_date(raw_entry_date, user_locale) or raw_entry_date} - " if raw_entry_date else ""
+                    lines.append(f"- {date_part}{entry['description']}: {format_monetary(entry['amount'], 'BRL', user_locale)}")
                 if len(debit_entries) > 10:
                     lines.append(f"- ...e mais {len(debit_entries) - 10} lançamentos de débito.")
     elif document_type == "fatura_cartao":
@@ -1816,15 +1806,15 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str, user_l
         else:
             lines.append("Recebi sua fatura e já extraí alguns dados importantes.")
         if invoice_total is not None:
-            lines.append(f"- valor total da fatura: {format_brl(invoice_total)}")
+            lines.append(f"- valor total da fatura: {format_monetary(invoice_total, 'BRL', user_locale)}")
         if due_date:
-            formatted_due = format_ptbr_date(due_date) or due_date
+            formatted_due = format_date(str(due_date), user_locale) or str(due_date)
             lines.append(f"- vencimento: {formatted_due}")
         if minimum_payment is not None:
-            lines.append(f"- pagamento mínimo: {format_brl(minimum_payment)}")
+            lines.append(f"- pagamento mínimo: {format_monetary(minimum_payment, 'BRL', user_locale)}")
         credit_limit = _safe_float(analysis.get("credit_limit"))
         if credit_limit is not None:
-            lines.append(f"- limite do cartão: {format_brl(credit_limit)}")
+            lines.append(f"- limite do cartão: {format_monetary(credit_limit, 'BRL', user_locale)}")
         best_purchase_day_raw = analysis.get("best_purchase_day")
         if best_purchase_day_raw is not None:
             try:
@@ -2309,17 +2299,19 @@ def _build_invoice_status_response_v2(
     valor_total: float,
     vencimento: Any,
     pagamento_minimo: float | None,
+    user_locale: str = "pt-BR",
 ) -> str:
-    resposta = [f"A última fatura que tenho salva do {card_name} está em {format_brl(valor_total)}."]
-    vencimento_formatado = format_ptbr_date(vencimento)
+    resposta = [f"A última fatura que tenho salva do {card_name} está em {format_monetary(valor_total, 'BRL', user_locale)}."]
+    vencimento_formatado = format_date(str(vencimento), user_locale) if vencimento else None
     if vencimento_formatado:
         resposta.append(f"O vencimento identificado é {vencimento_formatado}.")
     if pagamento_minimo is not None:
-        resposta.append(f"O pagamento mínimo dela ficou em {format_brl(pagamento_minimo)}.")
+        resposta.append(f"O pagamento mínimo dela ficou em {format_monetary(pagamento_minimo, 'BRL', user_locale)}.")
     return "\n\n".join(resposta)
 
 
 def build_invoice_status_message(user_id: int, message_text: str) -> str:
+    user_locale = get_user_locale(user_id)
     cards = get_cards(user_id)
     if not cards:
         return "Ainda não encontrei cartões cadastrados por aqui. Se quiser, eu posso te ajudar a cadastrar seus cartões primeiro."
@@ -2379,7 +2371,7 @@ def build_invoice_status_message(user_id: int, message_text: str) -> str:
         document_fallback = _load_invoice_from_recent_documents(user_id, selected_card)
         if document_fallback:
             valor_total, vencimento, pagamento_minimo = document_fallback
-            return _build_invoice_status_response_v2(card_name, valor_total, vencimento, pagamento_minimo)
+            return _build_invoice_status_response_v2(card_name, valor_total, vencimento, pagamento_minimo, user_locale)
 
         document_state = _load_recent_invoice_document_state_v2(user_id, selected_card)
         if document_state:
@@ -2389,7 +2381,7 @@ def build_invoice_status_message(user_id: int, message_text: str) -> str:
                 if invoice_total is not None:
                     due_date = payload.get("due_date")
                     minimum_payment = _safe_float(payload.get("minimum_payment"))
-                    return _build_invoice_status_response_v2(card_name, invoice_total, due_date, minimum_payment)
+                    return _build_invoice_status_response_v2(card_name, invoice_total, due_date, minimum_payment, user_locale)
 
             status = str(document_state.get("status") or "").strip().lower()
             if status in {"recebido", "processando"}:
@@ -2424,7 +2416,7 @@ def build_invoice_status_message(user_id: int, message_text: str) -> str:
     valor_total = float(row[0])
     vencimento = row[1]
     pagamento_minimo = float(row[2]) if row[2] is not None else None
-    return _build_invoice_status_response_v2(card_name, valor_total, vencimento, pagamento_minimo)
+    return _build_invoice_status_response_v2(card_name, valor_total, vencimento, pagamento_minimo, user_locale)
 
 
 def build_onboarding_completion_message(user_id: int) -> tuple[str, str]:
@@ -2432,6 +2424,7 @@ def build_onboarding_completion_message(user_id: int) -> tuple[str, str]:
     from app.services.onboarding import get_user_name  # noqa: PLC0415
 
     nome = get_user_name(user_id)
+    user_locale = get_user_locale(user_id)
 
     with get_cursor() as (_, cursor):
         cursor.execute(
@@ -2468,12 +2461,12 @@ def build_onboarding_completion_message(user_id: int) -> tuple[str, str]:
 
     linhas: list[str] = ["Aqui está um resumo do que organizei para você:"]
     if saldo is not None:
-        linhas.append(f"\nSaldo atual da conta: {format_brl(saldo)}")
+        linhas.append(f"\nSaldo atual da conta: {format_monetary(saldo, 'BRL', user_locale)}")
     if invoices:
         linhas.append("\nFaturas dos cartões:")
         for inv in invoices:
-            venc = format_ptbr_date(inv["vencimento"]) or ""
-            linha = f"- {inv['nome']}: {format_brl(inv['valor'])}"
+            venc = format_date(str(inv["vencimento"]), user_locale) if inv["vencimento"] else ""
+            linha = f"- {inv['nome']}: {format_monetary(inv['valor'], 'BRL', user_locale)}"
             if venc:
                 linha += f" (venc. {venc})"
             linhas.append(linha)
