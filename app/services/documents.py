@@ -15,7 +15,7 @@ from starlette.datastructures import FormData
 
 from app.config import get_settings
 from app.db import get_cursor
-from app.services.formatting import format_brl, format_ptbr_date
+from app.services.formatting import format_brl, format_date, format_monetary, format_ptbr_date
 from app.services.users import get_user_locale
 from app.services.logger import get_logger
 from app.services.onboarding import (
@@ -150,13 +150,13 @@ def _safe_float(value: Any) -> float | None:
         cleaned = value.strip()
         if not cleaned:
             return None
-        cleaned = cleaned.replace("R$", "").replace(" ", "")
-        cleaned = cleaned.replace(".", "").replace(",", ".")
+        # Accounting convention: (1234.56) means negative
         if cleaned.startswith("(") and cleaned.endswith(")"):
             cleaned = f"-{cleaned[1:-1]}"
         try:
             return float(cleaned)
         except ValueError:
+            logger.warning("safe_float_failed raw=%.50s", value)
             return None
 
     return None
@@ -800,6 +800,9 @@ def _build_document_analysis_system_prompt(income_instructions: str, hinted_type
         "Retorne TODAS as strings (categorias, subcategorias, descrições resumidas) com ortografia e acentuação CORRETAS desse idioma. "
         "Voce analisa documentos financeiros e retorna TODOS os lancamentos encontrados, sem excecao. "
         "Nao filtre por tipo, valor ou categoria — creditos, debitos, valores minimos, lancamentos sem categoria clara — TODOS devem ser retornados em statement_rows. "
+        "VALORES NUMERICOS: antes de extrair qualquer valor, identifique o padrao de formatacao numerica usado NESTE documento — determine qual caractere e o separador decimal e qual e o separador de grupos de milhar. "
+        "Retorne todos os valores monetarios como numeros decimais puros usando '.' como separador decimal e sem nenhum separador de milhar, preservando a precisao exata sem truncar nem arredondar. "
+        "O valor numerico retornado deve refletir o montante completo exibido no documento — nenhum digito pode ser omitido ou descartado. "
         "Retorne apenas JSON valido com este formato: "
         '{"document_type":"extrato|fatura_cartao|desconhecido",'
         '"summary":"texto curto",'
@@ -1654,7 +1657,7 @@ def _persist_financial_context(user_id: int, analysis: dict[str, Any], card_id: 
         conn.commit()
 
 
-def _render_statement_rows(rows: list[dict[str, Any]]) -> list[str]:
+def _render_statement_rows(rows: list[dict[str, Any]], user_locale: str = "pt-BR") -> list[str]:
     """Render statement_rows as display lines, including header and call-to-action.
 
     Returns an empty list when rows is empty so callers can extend unconditionally.
@@ -1665,13 +1668,13 @@ def _render_statement_rows(rows: list[dict[str, Any]]) -> list[str]:
     result: list[str] = ["", f"Lançamentos encontrados ({len(rows)} no total):"]
     low_confidence_count = 0
     for row in rows:
-        date_prefix = f"{row['date']} " if row.get("date") else ""
+        raw_date = row.get("date")
+        date_prefix = f"{format_date(raw_date, user_locale) or raw_date} " if raw_date else ""
         moeda = row.get("moeda") or "BRL"
-        currency_prefix = f"{moeda} " if moeda != "BRL" else ""
         if row.get("credit") is not None:
-            valor_str = f"+{currency_prefix}R${row['credit']:.2f}"
+            valor_str = f"+{format_monetary(row['credit'], moeda, user_locale)}"
         elif row.get("debit") is not None:
-            valor_str = f"-{currency_prefix}R${row['debit']:.2f}"
+            valor_str = f"-{format_monetary(row['debit'], moeda, user_locale)}"
         else:
             valor_str = ""
         tipo = _format_cost_type(row.get("tipo_custo") or "")
@@ -1739,7 +1742,7 @@ def _build_adjustments_applied_message(
     ])
 
 
-def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str:
+def _build_analysis_message(analysis: dict[str, Any], fallback_type: str, user_locale: str = "pt-BR") -> str:
     document_type = analysis.get("document_type") or fallback_type
     summary = (analysis.get("summary") or "").strip()
     current_balance = _safe_float(analysis.get("current_balance"))
@@ -1790,7 +1793,7 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
                 lines.append(f"- data prevista de debito dos encargos: {formatted_charges_date}")
 
         if statement_rows:
-            lines.extend(_render_statement_rows(statement_rows))
+            lines.extend(_render_statement_rows(statement_rows, user_locale))
         elif credit_entries or debit_entries:
             if credit_entries:
                 lines.extend(["", f"Créditos identificados ({len(credit_entries)} no total):"])
@@ -1830,7 +1833,7 @@ def _build_analysis_message(analysis: dict[str, Any], fallback_type: str) -> str
                     lines.append(f"- melhor dia para compras: dia {day}")
             except (TypeError, ValueError):
                 pass
-        lines.extend(_render_statement_rows(statement_rows))
+        lines.extend(_render_statement_rows(statement_rows, user_locale))
     else:
         lines.append("Recebi seu documento financeiro e consegui registrar algumas informações iniciais.")
 
@@ -1886,7 +1889,7 @@ def process_received_document(user_id: int, media_url: str, media_content_type: 
         return build_document_receipt_message(hinted_type)
 
     _persist_financial_context(user_id, analysis)
-    return _build_analysis_message(analysis, hinted_type)
+    return _build_analysis_message(analysis, hinted_type, user_locale)
 
 
 _ADJUSTMENTS_ERROR_MSG = (

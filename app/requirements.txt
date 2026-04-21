@@ -14,3 +14,4 @@ email-validator==2.2.0
 pymupdf==1.24.14
 pytesseract==0.3.13
 Pillow==11.2.1
+Babel==2.16.0
