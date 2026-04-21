@@ -288,6 +288,9 @@ _NON_TRANSACTION_PREFIXES = (
     "saldo final",
     "saldo em ",
     "saldo periodo",
+    # Generic summary-row patterns: "Total Nacional", "Total de débitos", etc.
+    "total ",
+    "subtotal ",
 )
 
 
@@ -560,6 +563,8 @@ _HEADER_LINE_RE = re.compile(
     r'|provis[ãa]o'                      # "Provisão de encargos"
     r'|encargos'                         # "encargos a debitar"
     r'|limite\s+da?\s+conta'             # "Limite da conta"
+    r'|\btotal\b'                        # "Total Nacional", "Total da fatura", etc.
+    r'|\bsubtotal\b'                     # "Subtotal" summary rows
     r')',
     re.IGNORECASE,
 )
@@ -578,7 +583,7 @@ def _format_cost_type(tipo_custo: str) -> str:
 
 
 def _count_raw_transaction_candidates(text: str) -> int:
-    """Count lines that have both a date (dd/mm/yy|yyyy) and a BRL monetary value,
+    """Count lines that have both a date (dd/mm/yy|yyyy) and a monetary value,
     excluding known header/summary patterns (period delimiters, balance lines, etc.).
 
     Two-date lines (e.g. "Período: 01/04 a 30/04") are also excluded because a
@@ -591,7 +596,8 @@ def _count_raw_transaction_candidates(text: str) -> int:
         if len(_DATE_RE.findall(line)) > 1:
             continue  # period header — two dates, not a transaction
         if _HEADER_LINE_RE.search(line):
-            continue  # balance/summary/fee line
+            continue  # balance/summary/fee/total line
+        logger.debug("raw_candidate line=%.200s", line.strip())
         count += 1
     return count
 
