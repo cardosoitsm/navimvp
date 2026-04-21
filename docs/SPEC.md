@@ -595,6 +595,16 @@ O Navi atende múltiplas instituições financeiras (bancos brasileiros e futura
 Extratos e faturas podem ter várias colunas numéricas por transação (valor em moeda estrangeira, saldo, conversão, código de documento). O prompt instrui o GPT genericamente:
 > "Para cada lançamento, identifique qual é o VALOR EFETIVO debitado ou creditado na conta do usuário. Coloque esse valor em `credit` ou `debit` e o código ISO 4217 da moeda no campo `moeda`. Se não tiver certeza, retorne `confidence: 'low'`."
 
+### Estratégia de extração de texto do PDF
+
+Para que o GPT receba valores íntegros, a camada de extração preserva a estrutura espacial do PDF antes de enviar o texto ao prompt. A função `_extract_pdfplumber_page` aplica, em ordem:
+
+1. **Extração por tabela** — `extract_tables()` com `vertical_strategy=lines` e, se não houver linhas, `vertical_strategy=text`. Retorna linhas separadas por ` | ` quando detecta ≥ 2 linhas úteis.
+2. **Agrupamento por Y a partir de `extract_words()`** — cada palavra vem com `x0`/`top`. Palavras com `top` dentro de ±3 px pertencem à mesma linha visual; dentro da linha ordena-se por `x0`. Mantém valores multicoluna inteiros (ex.: `US$ 0,00 R$ 3.542,34`), sem qualquer suposição sobre quantidade ou posição de colunas — funciona para qualquer banco/emissor.
+3. **`extract_text()` cru** — último recurso, usado apenas quando as estratégias anteriores não retornam texto. Pode linearizar e fragmentar valores, mas garante saída para layouts atípicos.
+
+A estratégia escolhida é logada como `pdf_extraction_strategy strategy=tables|words|text`. Essa escolha é agnóstica a layout e não substitui as regras acima — o GPT continua sendo o único responsável por interpretar o significado financeiro do texto extraído.
+
 ### Correção de bugs de valor
 
 Se um valor incorreto for extraído:
