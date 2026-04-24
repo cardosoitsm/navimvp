@@ -354,10 +354,10 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 resposta = adj_error
             elif updated_rows != existing_rows:
                 analysis["statement_rows"] = updated_rows
-                save_extrato_adjustments(user_id, updated_rows)
+                save_extrato_adjustments(user_id, updated_rows, tipo_documento="extrato")
                 resposta = _build_adjustments_applied_message(updated_rows, existing_rows)
             else:
-                resposta = _build_analysis_message(analysis, "extrato")
+                resposta = _build_adjustments_applied_message(existing_rows, existing_rows)
         else:
             resposta = _build_analysis_message(analysis, "extrato")
         return Response(content=build_twiml(resposta), media_type="application/xml")
@@ -398,10 +398,10 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
                 resposta = adj_error
             elif updated_rows != existing_rows:
                 analysis["statement_rows"] = updated_rows
-                save_extrato_adjustments(user_id, updated_rows)
+                save_extrato_adjustments(user_id, updated_rows, tipo_documento="fatura_cartao")
                 resposta = _build_adjustments_applied_message(updated_rows, existing_rows)
             else:
-                resposta = _build_analysis_message(analysis, "fatura_cartao")
+                resposta = _build_adjustments_applied_message(existing_rows, existing_rows)
         else:
             resposta = _build_analysis_message(analysis, "fatura_cartao")
         return Response(content=build_twiml(resposta), media_type="application/xml")

@@ -2034,18 +2034,18 @@ def apply_user_adjustments(
     return result, None
 
 
-def save_extrato_adjustments(user_id: int, updated_rows: list[dict[str, Any]]) -> None:
-    """Persist adjusted statement_rows back to the latest extrato extracted_json."""
+def save_extrato_adjustments(user_id: int, updated_rows: list[dict[str, Any]], tipo_documento: str = "extrato") -> None:
+    """Persist adjusted statement_rows back to the latest document of given tipo_documento."""
     with get_cursor() as (_, cursor):
         cursor.execute(
             """
             SELECT id, extracted_json FROM documentos_financeiros
-            WHERE user_id = %s AND tipo_documento = 'extrato'
+            WHERE user_id = %s AND tipo_documento = %s
               AND extracted_json IS NOT NULL
             ORDER BY created_at DESC
             LIMIT 1
             """,
-            (user_id,),
+            (user_id, tipo_documento),
         )
         row = cursor.fetchone()
     if not row:
