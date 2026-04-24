@@ -672,7 +672,9 @@ def _extract_words_with_y_grouping(page: Any, y_tolerance: float = 5.0) -> str:
     Bank-agnostic: no assumption about column count or positions.
     """
     try:
-        words = page.extract_words(x_tolerance=0, y_tolerance=0)
+        # Use reasonable tolerances to prevent character-level fragmentation
+        # x_tolerance=3, y_tolerance=3 keeps monetary values like "R$ 3.542,34" together
+        words = page.extract_words(x_tolerance=3, y_tolerance=3)
     except Exception:
         return ""
     if not words:
@@ -680,8 +682,14 @@ def _extract_words_with_y_grouping(page: Any, y_tolerance: float = 5.0) -> str:
     words_sorted = sorted(words, key=lambda w: (w["top"], w["x0"]))
     lines: list[list[dict]] = []
     for w in words_sorted:
-        if lines and abs(w["top"] - lines[-1][0]["top"]) <= y_tolerance:
-            lines[-1].append(w)
+        if lines:
+            # Compare against median Y of current line to handle gradual Y drift
+            line_y_coords = [word["top"] for word in lines[-1]]
+            median_y = sorted(line_y_coords)[len(line_y_coords) // 2]
+            if abs(w["top"] - median_y) <= y_tolerance:
+                lines[-1].append(w)
+            else:
+                lines.append([w])
         else:
             lines.append([w])
     return "\n".join(
