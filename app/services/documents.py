@@ -669,6 +669,10 @@ def _extract_words_with_y_grouping(page: Any) -> str:
     and "542,34" on another. extract_words() preserves x0/top per word so we
     can group by Y (±3px tolerance) and order by X, keeping values intact.
 
+    Uses proximity-based grouping (not rigid buckets) to handle words near
+    bucket boundaries — e.g. words at y=4.4 and y=5.0 (only 0.6px apart) are
+    kept on the same line instead of being split into different buckets.
+
     Bank-agnostic: no assumption about column count or positions.
     """
     try:
@@ -678,24 +682,27 @@ def _extract_words_with_y_grouping(page: Any) -> str:
     if not words:
         return ""
 
-    # Group words by Y coordinate using ±3px tolerance
-    # y_key = round(word['top'] / 3) * 3 creates 3-pixel buckets
-    from collections import defaultdict
-    lines_dict: dict[int, list[dict]] = defaultdict(list)
-    for word in words:
-        y_key = round(word["top"] / 3) * 3
-        lines_dict[y_key].append(word)
+    # Proximity-based grouping with ±3px tolerance
+    # Sort by Y first, then X; iterate and group words within ±3px of the
+    # current line's mean Y — avoids the bucket-boundary problem of
+    # round(top/3)*3 where words 0.6px apart fall into different buckets.
+    Y_TOLERANCE = 3.0
+    words_sorted = sorted(words, key=lambda w: (w["top"], w["x0"]))
+    lines: list[list[dict]] = []
+    for word in words_sorted:
+        if lines:
+            current_line = lines[-1]
+            mean_y = sum(w["top"] for w in current_line) / len(current_line)
+            if abs(word["top"] - mean_y) <= Y_TOLERANCE:
+                current_line.append(word)
+                continue
+        lines.append([word])
 
-    # Sort groups by Y, sort words within each group by X
-    sorted_y_keys = sorted(lines_dict.keys())
-    lines = []
-    for y_key in sorted_y_keys:
-        line_words = sorted(lines_dict[y_key], key=lambda w: w["x0"])
-        line_text = " ".join(w["text"] for w in line_words)
-        lines.append(line_text)
-
-    # Join all lines with newline
-    return "\n".join(lines).strip()
+    # Sort words within each line by X to reconstruct left-to-right reading order
+    return "\n".join(
+        " ".join(w["text"] for w in sorted(line, key=lambda x: x["x0"]))
+        for line in lines
+    ).strip()
 
 
 def _extract_pdfplumber_page(page: Any) -> str:
