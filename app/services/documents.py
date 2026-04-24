@@ -1932,7 +1932,7 @@ _ADJUSTMENTS_ERROR_MSG = (
 )
 
 _ADJUSTMENTS_EXAMPLE = (
-    'Exemplo de saida esperada: [{"indice":2,"acao":"atualizar","categoria":"Alimentacao","subcategoria":"supermercado","tipo_custo":"variavel"},'
+    'Exemplo de saida esperada: [{"indice":2,"acao":"atualizar","categoria":"Alimentação","subcategoria":"Supermercado","tipo_custo":"variavel"},'
     '{"indice":5,"acao":"ignorar","categoria":null,"subcategoria":null,"tipo_custo":null}]'
 )
 
