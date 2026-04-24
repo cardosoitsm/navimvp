@@ -659,7 +659,7 @@ def _ocr_image_bytes(image_bytes: bytes) -> str:
         return ""
 
 
-def _extract_words_with_y_grouping(page: Any, y_tolerance: float = 5.0) -> str:
+def _extract_words_with_y_grouping(page: Any) -> str:
     """
     Reconstruct page text by grouping words with similar Y into lines.
 
@@ -667,35 +667,35 @@ def _extract_words_with_y_grouping(page: Any, y_tolerance: float = 5.0) -> str:
     layouts (e.g. credit card invoices with DATE | DESC | USD | BRL columns)
     can split a value mid-number — "R$ 3.542,34" becomes "R$ 3." on one line
     and "542,34" on another. extract_words() preserves x0/top per word so we
-    can group by Y (±y_tolerance) and order by X, keeping values intact.
+    can group by Y (±3px tolerance) and order by X, keeping values intact.
 
     Bank-agnostic: no assumption about column count or positions.
     """
     try:
-        # Use reasonable tolerances to prevent character-level fragmentation
-        # x_tolerance=3, y_tolerance=3 keeps monetary values like "R$ 3.542,34" together
-        words = page.extract_words(x_tolerance=3, y_tolerance=3)
+        words = page.extract_words()
     except Exception:
         return ""
     if not words:
         return ""
-    words_sorted = sorted(words, key=lambda w: (w["top"], w["x0"]))
-    lines: list[list[dict]] = []
-    for w in words_sorted:
-        if lines:
-            # Compare against median Y of current line to handle gradual Y drift
-            line_y_coords = [word["top"] for word in lines[-1]]
-            median_y = sorted(line_y_coords)[len(line_y_coords) // 2]
-            if abs(w["top"] - median_y) <= y_tolerance:
-                lines[-1].append(w)
-            else:
-                lines.append([w])
-        else:
-            lines.append([w])
-    return "\n".join(
-        " ".join(w["text"] for w in sorted(line, key=lambda x: x["x0"]))
-        for line in lines
-    ).strip()
+
+    # Group words by Y coordinate using ±3px tolerance
+    # y_key = round(word['top'] / 3) * 3 creates 3-pixel buckets
+    from collections import defaultdict
+    lines_dict: dict[int, list[dict]] = defaultdict(list)
+    for word in words:
+        y_key = round(word["top"] / 3) * 3
+        lines_dict[y_key].append(word)
+
+    # Sort groups by Y, sort words within each group by X
+    sorted_y_keys = sorted(lines_dict.keys())
+    lines = []
+    for y_key in sorted_y_keys:
+        line_words = sorted(lines_dict[y_key], key=lambda w: w["x0"])
+        line_text = " ".join(w["text"] for w in line_words)
+        lines.append(line_text)
+
+    # Join all lines with newline
+    return "\n".join(lines).strip()
 
 
 def _extract_pdfplumber_page(page: Any) -> str:
@@ -703,24 +703,15 @@ def _extract_pdfplumber_page(page: Any) -> str:
     Extract text from a pdfplumber page preserving spatial structure.
 
     Strategy:
-      1. extract_text(layout=True) — preserves horizontal spacing and prevents
-         fragmenting multi-column monetary values. In layouts like
-         "DATE | DESC | USD | BRL", layout=True keeps "R$ 3.542,34" intact
+      1. Word extraction with Y-grouping (±3px tolerance) — primary strategy that
+         preserves full monetary values in multi-column layouts. In invoices with
+         "DATE | DESC | USD | BRL" columns, this keeps "R$ 3.542,34" intact
          instead of splitting it into "R$ 3." and "542,34".
-      2. Word extraction with Y-grouping — fallback for PDFs where layout=True fails.
-      3. Plain extract_text() — last resort for unusual layouts.
+      2. Plain extract_text() — fallback only if extract_words() returns empty.
 
-    Table extraction was removed as it fragments monetary values across cells.
+    extract_text() and layout=True were removed as they fragment values in
+    multi-column PDFs.
     """
-    try:
-        # layout=True preserves spatial positioning and prevents value fragmentation
-        text = page.extract_text(layout=True, x_tolerance=3, y_tolerance=3)
-        if text and text.strip():
-            logger.debug("pdf_extraction_strategy strategy=layout")
-            return text.strip()
-    except Exception as e:
-        logger.debug("pdf_extraction_layout_failed error=%s", str(e))
-
     words_text = _extract_words_with_y_grouping(page)
     if words_text:
         logger.debug("pdf_extraction_strategy strategy=words")
