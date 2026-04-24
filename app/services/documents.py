@@ -659,7 +659,7 @@ def _ocr_image_bytes(image_bytes: bytes) -> str:
         return ""
 
 
-def _extract_words_with_y_grouping(page: Any, y_tolerance: float = 3.0) -> str:
+def _extract_words_with_y_grouping(page: Any, y_tolerance: float = 5.0) -> str:
     """
     Reconstruct page text by grouping words with similar Y into lines.
 
@@ -672,7 +672,7 @@ def _extract_words_with_y_grouping(page: Any, y_tolerance: float = 3.0) -> str:
     Bank-agnostic: no assumption about column count or positions.
     """
     try:
-        words = page.extract_words()
+        words = page.extract_words(x_tolerance=0, y_tolerance=0)
     except Exception:
         return ""
     if not words:
@@ -694,36 +694,15 @@ def _extract_pdfplumber_page(page: Any) -> str:
     """
     Extract text from a pdfplumber page preserving spatial structure.
 
-    Strategy chain:
-      1. Table extraction (lines → text) — if the page has ruled or
-         text-aligned tables, return pipe-separated rows.
-      2. Word extraction with Y-grouping — reconstructs lines from
-         positioned words, keeping multi-column values whole.
-      3. Plain extract_text() — last resort; may fragment values but
-         guarantees a non-empty result for unusual layouts.
-    """
-    for table_settings in (
-        {"vertical_strategy": "lines", "horizontal_strategy": "lines"},
-        {"vertical_strategy": "text", "horizontal_strategy": "text"},
-    ):
-        try:
-            tables = page.extract_tables(table_settings)
-        except Exception:
-            tables = []
-        if not tables:
-            continue
-        rows: list[str] = []
-        for table in tables:
-            for row in table:
-                if not row:
-                    continue
-                cells = [str(cell or "").strip().replace("\n", " ") for cell in row]
-                if sum(1 for c in cells if c) >= 2:
-                    rows.append(" | ".join(cells))
-        if len(rows) >= 2:
-            logger.debug("pdf_extraction_strategy strategy=tables")
-            return "\n".join(rows)
+    Strategy:
+      1. Word extraction with Y-grouping — reconstructs lines from
+         positioned words by grouping words with similar Y-coordinates,
+         keeping multi-column monetary values whole (prevents fragmenting
+         "R$ 3.542,34" into "R$ 3." and "542,34").
+      2. Plain extract_text() — fallback for unusual layouts.
 
+    Table extraction was removed as it fragments monetary values across cells.
+    """
     words_text = _extract_words_with_y_grouping(page)
     if words_text:
         logger.debug("pdf_extraction_strategy strategy=words")
