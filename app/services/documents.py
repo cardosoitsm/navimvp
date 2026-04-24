@@ -703,14 +703,24 @@ def _extract_pdfplumber_page(page: Any) -> str:
     Extract text from a pdfplumber page preserving spatial structure.
 
     Strategy:
-      1. Word extraction with Y-grouping — reconstructs lines from
-         positioned words by grouping words with similar Y-coordinates,
-         keeping multi-column monetary values whole (prevents fragmenting
-         "R$ 3.542,34" into "R$ 3." and "542,34").
-      2. Plain extract_text() — fallback for unusual layouts.
+      1. extract_text(layout=True) — preserves horizontal spacing and prevents
+         fragmenting multi-column monetary values. In layouts like
+         "DATE | DESC | USD | BRL", layout=True keeps "R$ 3.542,34" intact
+         instead of splitting it into "R$ 3." and "542,34".
+      2. Word extraction with Y-grouping — fallback for PDFs where layout=True fails.
+      3. Plain extract_text() — last resort for unusual layouts.
 
     Table extraction was removed as it fragments monetary values across cells.
     """
+    try:
+        # layout=True preserves spatial positioning and prevents value fragmentation
+        text = page.extract_text(layout=True, x_tolerance=3, y_tolerance=3)
+        if text and text.strip():
+            logger.debug("pdf_extraction_strategy strategy=layout")
+            return text.strip()
+    except Exception as e:
+        logger.debug("pdf_extraction_layout_failed error=%s", str(e))
+
     words_text = _extract_words_with_y_grouping(page)
     if words_text:
         logger.debug("pdf_extraction_strategy strategy=words")
