@@ -32,18 +32,9 @@ jobs:
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
-    env:
-      ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
-      ACCOUNT_SID: ${{ secrets.ACCOUNT_SID }}
-      AUTH_TOKEN: ${{ secrets.AUTH_TOKEN }}
-      TWILIO_NUMBER: ${{ secrets.TWILIO_NUMBER }}
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      SECRET_KEY: ${{ secrets.SECRET_KEY }}
-      ALGORITHM: HS256
-      DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
-     
+
       - name: Verify deployment files
         run: |
           ls -la
@@ -51,53 +42,91 @@ jobs:
           test -f docker-compose.prod.yml
           test -f db/init.sql
 
-      - name: Copy deployment files to server
-        uses: appleboy/scp-action@master
+      - name: Login to Azure
+        uses: azure/login@v2
         with:
-          host: ${{ secrets.VM_HOST }}
-          username: ${{ secrets.VM_SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source : "docker-compose.prod.yml,db"
-          target: "/home/${{ secrets.VM_SSH_USER }}/navimvp/"
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: SSH deploy
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.VM_HOST }}
-          username: ${{ secrets.VM_SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: ACR_REGISTRY,ACCOUNT_SID,AUTH_TOKEN,TWILIO_NUMBER,OPENAI_API_KEY,SECRET_KEY,ALGORITHM,DATABASE_PASSWORD
-          script: |
-            set -e
+      - name: Build deploy script
+        env:
+          ACR_REGISTRY: ${{ secrets.ACR_REGISTRY }}
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+          VM_SSH_USER: ${{ secrets.VM_SSH_USER }}
+          ACCOUNT_SID: ${{ secrets.ACCOUNT_SID }}
+          AUTH_TOKEN: ${{ secrets.AUTH_TOKEN }}
+          TWILIO_NUMBER: ${{ secrets.TWILIO_NUMBER }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          ADMIN_SECRET_KEY: ${{ secrets.ADMIN_SECRET_KEY }}
+          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+        run: |
+          python3 << 'PYEOF'
+          import base64, os
 
-            APP_DIR=/home/${{ secrets.VM_SSH_USER }}/navimvp
-            mkdir -p "$APP_DIR/db"
-            cd "$APP_DIR"
+          compose_b64 = base64.b64encode(open('docker-compose.prod.yml', 'rb').read()).decode()
+          db_sql_b64  = base64.b64encode(open('db/init.sql', 'rb').read()).decode()
 
-            printf "%s\n" \
-              "ACR_REGISTRY=${ACR_REGISTRY}" \
-              "ACCOUNT_SID=${ACCOUNT_SID}" \
-              "AUTH_TOKEN=${AUTH_TOKEN}" \
-              "TWILIO_NUMBER=${TWILIO_NUMBER}" \
-              "OPENAI_API_KEY=${OPENAI_API_KEY}" \
-              "SECRET_KEY=${SECRET_KEY}" \
-              "ALGORITHM=${ALGORITHM}" \
-              "DATABASE_PASSWORD=${DATABASE_PASSWORD}" > .env
+          env_content = '\n'.join([
+              'ACR_REGISTRY='      + os.environ['ACR_REGISTRY'],
+              'ACCOUNT_SID='       + os.environ['ACCOUNT_SID'],
+              'AUTH_TOKEN='        + os.environ['AUTH_TOKEN'],
+              'TWILIO_NUMBER='     + os.environ['TWILIO_NUMBER'],
+              'OPENAI_API_KEY='    + os.environ['OPENAI_API_KEY'],
+              'SECRET_KEY='        + os.environ['SECRET_KEY'],
+              'ADMIN_SECRET_KEY='  + os.environ.get('ADMIN_SECRET_KEY', ''),
+              'ALGORITHM=HS256',
+              'DATABASE_PASSWORD=' + os.environ['DATABASE_PASSWORD'],
+          ])
 
-            echo "${{ secrets.ACR_PASSWORD }}" | docker login "${ACR_REGISTRY}" -u "${{ secrets.ACR_USERNAME }}" --password-stdin
+          env_b64  = base64.b64encode(env_content.encode()).decode()
+          acr_pass = base64.b64encode(os.environ['ACR_PASSWORD'].encode()).decode()
+          acr_user = os.environ['ACR_USERNAME']
+          acr_reg  = os.environ['ACR_REGISTRY']
+          ssh_user = os.environ['VM_SSH_USER']
 
-            compose() {
-              if docker compose version >/dev/null 2>&1; then
-                docker compose "$@"
-              elif command -v docker-compose >/dev/null 2>&1; then
-                docker-compose "$@"
-              else
-                echo "Docker Compose is not available on the VM"
-                exit 1
-              fi
-            }
+          script = '''#!/bin/bash
+          set -euo pipefail
+          echo "=== Navi Deploy Start ==="
 
-            compose -f docker-compose.prod.yml down --remove-orphans || true
-            compose -f docker-compose.prod.yml pull
-            compose -f docker-compose.prod.yml up -d --remove-orphans --force-recreate
+          APP_DIR=/home/{user}/navimvp
+          mkdir -p "$APP_DIR/db"
+          cd "$APP_DIR"
 
+          printf '%s' '{compose}' | base64 -d > docker-compose.prod.yml
+          printf '%s' '{db_sql}'  | base64 -d > db/init.sql
+          printf '%s' '{env}'     | base64 -d > .env
+
+          printf '%s' '{pw}' | base64 -d | docker login '{reg}' -u '{user2}' --password-stdin
+
+          if docker compose version >/dev/null 2>&1; then
+            COMPOSE_CMD="docker compose"
+          else
+            COMPOSE_CMD="docker-compose"
+          fi
+
+          $COMPOSE_CMD -f docker-compose.prod.yml pull app
+          $COMPOSE_CMD -f docker-compose.prod.yml up -d --no-deps --remove-orphans
+
+          echo "=== Deploy complete ==="
+          '''.format(
+              user=ssh_user,
+              compose=compose_b64,
+              db_sql=db_sql_b64,
+              env=env_b64,
+              pw=acr_pass,
+              reg=acr_reg,
+              user2=acr_user,
+          )
+
+          open('/tmp/deploy.sh', 'w').write(script)
+          print('Deploy script built successfully')
+          PYEOF
+
+      - name: Deploy to Azure VM (SSH-free via Azure CLI)
+        run: |
+          az vm run-command invoke \
+            --resource-group navimvp-hom-rg \
+            --name navimvp-hom-vm \
+            --command-id RunShellScript \
+            --scripts @/tmp/deploy.sh
