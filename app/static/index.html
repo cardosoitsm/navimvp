@@ -1,8 +1,494 @@
-<!doctype html>
-<html>
-<head><meta charset="utf-8"><title>navimvp — hom</title></head>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Navi — Cadastro</title>
+  <style>
+    :root {
+      --green-dark:  #1B4332;
+      --green-mid:   #2D6A4F;
+      --green-main:  #40916C;
+      --green-light: #74C69D;
+      --green-pale:  #D8F3DC;
+      --white:       #FFFFFF;
+      --gray-50:     #F8FAFC;
+      --gray-100:    #F1F5F9;
+      --gray-300:    #CBD5E1;
+      --gray-500:    #64748B;
+      --gray-700:    #334155;
+      --gray-900:    #0F172A;
+      --red:         #DC2626;
+      --radius:      12px;
+      --shadow:      0 4px 24px rgba(0,0,0,0.10);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(145deg, var(--green-dark) 0%, var(--green-mid) 60%, var(--green-main) 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+    }
+
+    .card {
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      width: 100%;
+      max-width: 420px;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    .card-header {
+      background: linear-gradient(135deg, var(--green-dark), var(--green-main));
+      padding: 32px 32px 28px;
+      text-align: center;
+      color: var(--white);
+    }
+    .logo {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -1px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .logo-icon { font-size: 1.6rem; }
+    .tagline {
+      margin-top: 6px;
+      font-size: 0.85rem;
+      opacity: 0.85;
+      font-weight: 400;
+    }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      border-bottom: 2px solid var(--gray-100);
+    }
+    .tab {
+      flex: 1;
+      padding: 14px;
+      text-align: center;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--gray-500);
+      border-bottom: 3px solid transparent;
+      margin-bottom: -2px;
+      transition: all 0.2s;
+      background: none;
+      border-top: none;
+      border-left: none;
+      border-right: none;
+    }
+    .tab.active {
+      color: var(--green-main);
+      border-bottom-color: var(--green-main);
+    }
+    .tab:hover:not(.active) { color: var(--gray-700); background: var(--gray-50); }
+
+    /* ── Forms ── */
+    .form-body { padding: 28px 32px 32px; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    .form-group { margin-bottom: 18px; }
+    label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--gray-700);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    input[type="email"],
+    input[type="password"],
+    input[type="tel"] {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1.5px solid var(--gray-300);
+      border-radius: 8px;
+      font-size: 0.95rem;
+      color: var(--gray-900);
+      background: var(--gray-50);
+      transition: border-color 0.2s, box-shadow 0.2s;
+      outline: none;
+    }
+    input:focus {
+      border-color: var(--green-main);
+      box-shadow: 0 0 0 3px rgba(64,145,108,0.15);
+      background: var(--white);
+    }
+    input.error-input { border-color: var(--red); }
+
+    .btn {
+      width: 100%;
+      padding: 13px;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--green-main), var(--green-dark));
+      color: var(--white);
+    }
+    .btn-primary:hover { filter: brightness(1.08); transform: translateY(-1px); }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-primary:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
+
+    /* ── Alerts ── */
+    .alert {
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 0.88rem;
+      margin-bottom: 16px;
+      display: none;
+      line-height: 1.5;
+    }
+    .alert.show { display: block; }
+    .alert-error { background: #FEE2E2; color: #991B1B; border-left: 4px solid var(--red); }
+    .alert-success { background: var(--green-pale); color: var(--green-dark); border-left: 4px solid var(--green-main); }
+
+    /* ── Success screen ── */
+    .success-screen {
+      padding: 28px 32px 32px;
+      display: none;
+      text-align: center;
+    }
+    .success-screen.show { display: block; }
+    .success-icon { font-size: 3rem; margin-bottom: 12px; }
+    .success-title { font-size: 1.25rem; font-weight: 800; color: var(--green-dark); margin-bottom: 8px; }
+    .success-sub { font-size: 0.9rem; color: var(--gray-500); margin-bottom: 24px; line-height: 1.6; }
+
+    .whatsapp-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: #25D366;
+      color: var(--white);
+      font-weight: 700;
+      font-size: 1rem;
+      padding: 14px 24px;
+      border-radius: 8px;
+      text-decoration: none;
+      transition: all 0.2s;
+      margin-bottom: 16px;
+    }
+    .whatsapp-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+
+    .token-box {
+      background: var(--gray-100);
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-family: 'SF Mono', 'Courier New', monospace;
+      font-size: 0.75rem;
+      color: var(--gray-700);
+      word-break: break-all;
+      text-align: left;
+      margin-top: 12px;
+      cursor: pointer;
+      position: relative;
+    }
+    .token-label { font-size: 0.75rem; color: var(--gray-500); margin-bottom: 6px; font-family: sans-serif; font-weight: 600; }
+    .copy-hint { font-size: 0.72rem; color: var(--green-main); margin-top: 6px; font-family: sans-serif; }
+
+    .switch-link {
+      display: block;
+      text-align: center;
+      margin-top: 20px;
+      font-size: 0.85rem;
+      color: var(--gray-500);
+    }
+    .switch-link a { color: var(--green-main); font-weight: 600; text-decoration: none; }
+    .switch-link a:hover { text-decoration: underline; }
+
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2.5px solid rgba(255,255,255,0.4);
+      border-top-color: var(--white);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 480px) {
+      .form-body, .success-screen { padding: 20px 20px 28px; }
+      .card-header { padding: 24px 20px 20px; }
+    }
+  </style>
+</head>
 <body>
-  <h1>navimvp — HOM</h1>
-  <p>Ambiente de homologação rodando — substitua este conteúdo pela sua aplicação.</p>
+
+<div class="card">
+
+  <!-- Header -->
+  <div class="card-header">
+    <div class="logo">
+      <span class="logo-icon">🧭</span> Navi
+    </div>
+    <p class="tagline">Controle financeiro sem complicação</p>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs" id="tabs">
+    <button class="tab active" onclick="switchTab('register')">Cadastrar</button>
+    <button class="tab" onclick="switchTab('login')">Entrar</button>
+  </div>
+
+  <!-- Forms -->
+  <div class="form-body" id="formBody">
+
+    <!-- Register panel -->
+    <div class="panel active" id="registerPanel">
+      <div class="alert alert-error" id="registerError"></div>
+      <div class="alert alert-success" id="registerInfo"></div>
+
+      <div class="form-group">
+        <label for="regEmail">E-mail</label>
+        <input type="email" id="regEmail" placeholder="seu@email.com" autocomplete="email" />
+      </div>
+      <div class="form-group">
+        <label for="regSenha">Senha</label>
+        <input type="password" id="regSenha" placeholder="Mínimo 6 caracteres" autocomplete="new-password" />
+      </div>
+      <div class="form-group">
+        <label for="regConfirm">Confirmar senha</label>
+        <input type="password" id="regConfirm" placeholder="Repita a senha" autocomplete="new-password" />
+      </div>
+
+      <button class="btn btn-primary" id="regBtn" onclick="doRegister()">
+        <span class="spinner" id="regSpinner"></span>
+        <span id="regBtnText">Criar conta</span>
+      </button>
+
+      <p class="switch-link">Já tem conta? <a href="#" onclick="switchTab('login');return false;">Entrar</a></p>
+    </div>
+
+    <!-- Login panel -->
+    <div class="panel" id="loginPanel">
+      <div class="alert alert-error" id="loginError"></div>
+
+      <div class="form-group">
+        <label for="loginEmail">E-mail</label>
+        <input type="email" id="loginEmail" placeholder="seu@email.com" autocomplete="email" />
+      </div>
+      <div class="form-group">
+        <label for="loginSenha">Senha</label>
+        <input type="password" id="loginSenha" placeholder="Sua senha" autocomplete="current-password" />
+      </div>
+
+      <button class="btn btn-primary" id="loginBtn" onclick="doLogin()">
+        <span class="spinner" id="loginSpinner"></span>
+        <span id="loginBtnText">Entrar</span>
+      </button>
+
+      <p class="switch-link">Ainda não tem conta? <a href="#" onclick="switchTab('register');return false;">Cadastrar</a></p>
+    </div>
+
+  </div>
+
+  <!-- Success screen (register) -->
+  <div class="success-screen" id="registerSuccess">
+    <div class="success-icon">🎉</div>
+    <div class="success-title">Conta criada com sucesso!</div>
+    <p class="success-sub">
+      Sua conta está pronta. Agora é só adicionar o Navi no WhatsApp e mandar uma mensagem para começar.
+    </p>
+    <a class="whatsapp-btn" id="waRegLink" href="#" target="_blank">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+      Abrir WhatsApp
+    </a>
+    <p style="font-size:0.8rem;color:var(--gray-500);margin-top:4px;">
+      Salve o número do Navi na sua agenda e mande "Olá" para começar.
+    </p>
+    <button class="btn btn-primary" style="margin-top:16px;" onclick="switchTab('login');hideSuccess();">
+      Ir para o login
+    </button>
+  </div>
+
+  <!-- Success screen (login) -->
+  <div class="success-screen" id="loginSuccess">
+    <div class="success-icon">✅</div>
+    <div class="success-title">Bem-vindo de volta!</div>
+    <p class="success-sub">
+      Login realizado. Você pode usar o token abaixo para acessar a API diretamente.
+    </p>
+    <div class="token-label">JWT Token (clique para copiar)</div>
+    <div class="token-box" id="tokenBox" onclick="copyToken()">
+      <span id="tokenValue"></span>
+      <div class="copy-hint" id="copyHint">Clique para copiar</div>
+    </div>
+    <a class="whatsapp-btn" id="waLoginLink" href="#" target="_blank" style="margin-top:20px;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+      Continuar no WhatsApp
+    </a>
+    <button class="btn" style="background:var(--gray-100);color:var(--gray-700);margin-top:8px;font-weight:600;" onclick="hideLoginSuccess()">
+      Voltar
+    </button>
+  </div>
+
+</div>
+
+<script>
+  // ── Config ───────────────────────────────────────────────
+  const API   = window.location.origin;
+  const WA_NUMBER = '+5511999999999'; // substituir pelo número Twilio em produção
+
+  // ── Tab switching ─────────────────────────────────────────
+  function switchTab(tab) {
+    document.querySelectorAll('.tab').forEach((t, i) => {
+      t.classList.toggle('active', (tab === 'register' && i === 0) || (tab === 'login' && i === 1));
+    });
+    document.getElementById('registerPanel').classList.toggle('active', tab === 'register');
+    document.getElementById('loginPanel').classList.toggle('active', tab === 'login');
+    clearAlerts();
+  }
+
+  function clearAlerts() {
+    ['registerError','registerInfo','loginError'].forEach(id => {
+      const el = document.getElementById(id);
+      el.classList.remove('show');
+      el.textContent = '';
+    });
+    ['regEmail','regSenha','regConfirm','loginEmail','loginSenha'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.remove('error-input');
+    });
+  }
+
+  function showAlert(id, msg) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.classList.add('show');
+  }
+
+  function setLoading(btnId, spinnerId, textId, loading, label) {
+    const btn = document.getElementById(btnId);
+    const spinner = document.getElementById(spinnerId);
+    const text = document.getElementById(textId);
+    btn.disabled = loading;
+    spinner.style.display = loading ? 'block' : 'none';
+    text.textContent = loading ? 'Aguarde...' : label;
+  }
+
+  // ── Register ──────────────────────────────────────────────
+  async function doRegister() {
+    clearAlerts();
+    const email   = document.getElementById('regEmail').value.trim();
+    const senha   = document.getElementById('regSenha').value;
+    const confirm = document.getElementById('regConfirm').value;
+
+    if (!email) { showAlert('registerError', 'Informe seu e-mail.'); document.getElementById('regEmail').classList.add('error-input'); return; }
+    if (!email.includes('@')) { showAlert('registerError', 'E-mail inválido.'); document.getElementById('regEmail').classList.add('error-input'); return; }
+    if (senha.length < 6) { showAlert('registerError', 'A senha deve ter ao menos 6 caracteres.'); document.getElementById('regSenha').classList.add('error-input'); return; }
+    if (senha !== confirm) { showAlert('registerError', 'As senhas não coincidem.'); document.getElementById('regConfirm').classList.add('error-input'); return; }
+
+    setLoading('regBtn', 'regSpinner', 'regBtnText', true, 'Criar conta');
+    try {
+      const res = await fetch(API + '/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, senha })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const detail = data.detail || 'Erro ao criar conta. Tente novamente.';
+        showAlert('registerError', detail);
+      } else {
+        document.getElementById('formBody').style.display = 'none';
+        document.getElementById('tabs').style.display = 'none';
+        const waLink = 'https://wa.me/' + WA_NUMBER.replace(/\D/g,'') + '?text=Ol%C3%A1%2C+Navi!';
+        document.getElementById('waRegLink').href = waLink;
+        document.getElementById('registerSuccess').classList.add('show');
+      }
+    } catch (e) {
+      showAlert('registerError', 'Erro de conexão. Verifique sua internet e tente novamente.');
+    } finally {
+      setLoading('regBtn', 'regSpinner', 'regBtnText', false, 'Criar conta');
+    }
+  }
+
+  function hideSuccess() {
+    document.getElementById('registerSuccess').classList.remove('show');
+    document.getElementById('tabs').style.display = '';
+    document.getElementById('formBody').style.display = '';
+  }
+
+  // ── Login ─────────────────────────────────────────────────
+  async function doLogin() {
+    clearAlerts();
+    const email = document.getElementById('loginEmail').value.trim();
+    const senha = document.getElementById('loginSenha').value;
+
+    if (!email) { showAlert('loginError', 'Informe seu e-mail.'); document.getElementById('loginEmail').classList.add('error-input'); return; }
+    if (!senha)  { showAlert('loginError', 'Informe sua senha.'); document.getElementById('loginSenha').classList.add('error-input'); return; }
+
+    setLoading('loginBtn', 'loginSpinner', 'loginBtnText', true, 'Entrar');
+    try {
+      const res = await fetch(API + '/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, senha })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const detail = data.detail || 'E-mail ou senha incorretos.';
+        showAlert('loginError', detail);
+      } else {
+        document.getElementById('tokenValue').textContent = data.token;
+        document.getElementById('formBody').style.display = 'none';
+        document.getElementById('tabs').style.display = 'none';
+        const waLink = 'https://wa.me/' + WA_NUMBER.replace(/\D/g,'') + '?text=Ol%C3%A1%2C+Navi!';
+        document.getElementById('waLoginLink').href = waLink;
+        document.getElementById('loginSuccess').classList.add('show');
+      }
+    } catch (e) {
+      showAlert('loginError', 'Erro de conexão. Verifique sua internet e tente novamente.');
+    } finally {
+      setLoading('loginBtn', 'loginSpinner', 'loginBtnText', false, 'Entrar');
+    }
+  }
+
+  function hideLoginSuccess() {
+    document.getElementById('loginSuccess').classList.remove('show');
+    document.getElementById('tabs').style.display = '';
+    document.getElementById('formBody').style.display = '';
+  }
+
+  // ── Copy token ────────────────────────────────────────────
+  function copyToken() {
+    const text = document.getElementById('tokenValue').textContent;
+    navigator.clipboard.writeText(text).then(() => {
+      document.getElementById('copyHint').textContent = '✅ Copiado!';
+      setTimeout(() => { document.getElementById('copyHint').textContent = 'Clique para copiar'; }, 2000);
+    });
+  }
+
+  // ── Enter key support ─────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      if (document.getElementById('registerPanel').classList.contains('active')) doRegister();
+      else doLogin();
+    }
+  });
+</script>
 </body>
-</html>
+  </html>
