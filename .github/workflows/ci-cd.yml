@@ -37,8 +37,6 @@ jobs:
 
       - name: Verify deployment files
         run: |
-          ls -la
-          ls -la db
           test -f docker-compose.prod.yml
           test -f db/init.sql
 
@@ -60,70 +58,9 @@ jobs:
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
           ADMIN_SECRET_KEY: ${{ secrets.ADMIN_SECRET_KEY }}
           DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
-        run: |
-          python3 << 'PYEOF'
-          import base64, os
+        run: python3 .github/scripts/build_deploy.py
 
-          compose_b64 = base64.b64encode(open('docker-compose.prod.yml', 'rb').read()).decode()
-          db_sql_b64  = base64.b64encode(open('db/init.sql', 'rb').read()).decode()
-
-          env_content = '\n'.join([
-              'ACR_REGISTRY='      + os.environ['ACR_REGISTRY'],
-              'ACCOUNT_SID='       + os.environ['ACCOUNT_SID'],
-              'AUTH_TOKEN='        + os.environ['AUTH_TOKEN'],
-              'TWILIO_NUMBER='     + os.environ['TWILIO_NUMBER'],
-              'OPENAI_API_KEY='    + os.environ['OPENAI_API_KEY'],
-              'SECRET_KEY='        + os.environ['SECRET_KEY'],
-              'ADMIN_SECRET_KEY='  + os.environ.get('ADMIN_SECRET_KEY', ''),
-              'ALGORITHM=HS256',
-              'DATABASE_PASSWORD=' + os.environ['DATABASE_PASSWORD'],
-          ])
-
-          env_b64  = base64.b64encode(env_content.encode()).decode()
-          acr_pass = base64.b64encode(os.environ['ACR_PASSWORD'].encode()).decode()
-          acr_user = os.environ['ACR_USERNAME']
-          acr_reg  = os.environ['ACR_REGISTRY']
-          ssh_user = os.environ['VM_SSH_USER']
-
-          script = '''#!/bin/bash
-set -euo pipefail
-echo "=== Navi Deploy Start ==="
-
-APP_DIR=/home/{user}/navimvp
-mkdir -p "$APP_DIR/db"
-cd "$APP_DIR"
-
-printf '%s' '{compose}' | base64 -d > docker-compose.prod.yml
-printf '%s' '{db_sql}'  | base64 -d > db/init.sql
-printf '%s' '{env}'     | base64 -d > .env
-
-printf '%s' '{pw}' | base64 -d | docker login '{reg}' -u '{user2}' --password-stdin
-
-if docker compose version >/dev/null 2>&1; then
-  COMPOSE_CMD="docker compose"
-else
-  COMPOSE_CMD="docker-compose"
-fi
-
-$COMPOSE_CMD -f docker-compose.prod.yml pull app
-$COMPOSE_CMD -f docker-compose.prod.yml up -d --no-deps --remove-orphans
-
-echo "=== Deploy complete ==="
-'''.format(
-              user=ssh_user,
-              compose=compose_b64,
-              db_sql=db_sql_b64,
-              env=env_b64,
-              pw=acr_pass,
-              reg=acr_reg,
-              user2=acr_user,
-          )
-
-          open('/tmp/deploy.sh', 'w').write(script)
-          print('Deploy script built successfully')
-          PYEOF
-
-      - name: Deploy to Azure VM (SSH-free via Azure CLI)
+      - name: Deploy to Azure VM
         run: |
           az vm run-command invoke \
             --resource-group navimvp-hom-rg \
