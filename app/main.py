@@ -1,7 +1,9 @@
 import logging
+from pathlib import Path
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
 
 from app.auth import create_token, get_current_user
 from app.config import get_settings
@@ -139,6 +141,9 @@ from app.services.users import (
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name, debug=settings.app_debug)
+
+_STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 logger = get_logger("navi.webhook")
 
 
@@ -151,15 +156,9 @@ def startup() -> None:
 
 @app.get("/", response_class=HTMLResponse)
 def root() -> str:
-    return """
-    <html>
-      <head><meta charset="utf-8"><title>Navi MVP</title></head>
-      <body>
-        <h1>Navi MVP</h1>
-        <p>API FastAPI ativa.</p>
-      </body>
-    </html>
-    """
+    """Serve the Navi registration and login front-end."""
+    index_path = Path(__file__).parent / "static" / "index.html"
+    return index_path.read_text(encoding="utf-8")
 
 
 @app.get("/health")
