@@ -1,18 +1,44 @@
 from app.db import get_cursor
 from app.services.formatting import format_brl
 
+# BUG-E2E-001 FIX: all spending queries now unify two data sources:
+#   1. transacoes        — manual/confirmed individual transaction records
+#   2. custos_mensais    — bank-import categorizations confirmed by the user (confirmado = true)
+# This ensures that when a user confirms an imported bank-statement entry ("SIM"), it
+# appears immediately in every spending summary, not just in the financial-profile views.
+
+_COMBINED_SPENDING_CTE = """
+    SELECT categoria, valor
+    FROM transacoes
+    WHERE user_id = %(user_id)s
+    UNION ALL
+    SELECT COALESCE(subcategoria, categoria) AS categoria, valor_medio AS valor
+    FROM custos_mensais
+    WHERE user_id = %(user_id)s AND confirmado = true
+"""
+
+_COMBINED_SPENDING_BY_CATEGORY_CTE = """
+    SELECT categoria, valor
+    FROM transacoes
+    WHERE user_id = %(user_id)s AND categoria = %(categoria)s
+    UNION ALL
+    SELECT COALESCE(subcategoria, categoria) AS categoria, valor_medio AS valor
+    FROM custos_mensais
+    WHERE user_id = %(user_id)s AND confirmado = true
+      AND COALESCE(subcategoria, categoria) = %(categoria)s
+"""
+
 
 def resumo_mes(user_id: int) -> str:
     with get_cursor() as (_, cursor):
         cursor.execute(
-            """
+            f"""
             SELECT categoria, SUM(valor)
-            FROM transacoes
-            WHERE user_id = %s
+            FROM ({_COMBINED_SPENDING_CTE}) AS combined
             GROUP BY categoria
             ORDER BY categoria
             """,
-            (user_id,),
+            {"user_id": user_id},
         )
         dados = cursor.fetchall()
 
@@ -34,12 +60,11 @@ def resumo_mes(user_id: int) -> str:
 def resumo_categoria(user_id: int, categoria: str) -> str:
     with get_cursor() as (_, cursor):
         cursor.execute(
-            """
+            f"""
             SELECT COALESCE(SUM(valor), 0)
-            FROM transacoes
-            WHERE user_id = %s AND categoria = %s
+            FROM ({_COMBINED_SPENDING_BY_CATEGORY_CTE}) AS combined
             """,
-            (user_id, categoria),
+            {"user_id": user_id, "categoria": categoria},
         )
         total = float(cursor.fetchone()[0])
 
@@ -49,22 +74,20 @@ def resumo_categoria(user_id: int, categoria: str) -> str:
 def gerar_insight(user_id: int, categoria: str) -> str:
     with get_cursor() as (_, cursor):
         cursor.execute(
-            """
+            f"""
             SELECT COALESCE(SUM(valor), 0)
-            FROM transacoes
-            WHERE user_id = %s AND categoria = %s
+            FROM ({_COMBINED_SPENDING_BY_CATEGORY_CTE}) AS combined
             """,
-            (user_id, categoria),
+            {"user_id": user_id, "categoria": categoria},
         )
         total_categoria = float(cursor.fetchone()[0])
 
         cursor.execute(
-            """
+            f"""
             SELECT COALESCE(SUM(valor), 0)
-            FROM transacoes
-            WHERE user_id = %s
+            FROM ({_COMBINED_SPENDING_CTE}) AS combined
             """,
-            (user_id,),
+            {"user_id": user_id},
         )
         total_geral = float(cursor.fetchone()[0])
 
@@ -83,12 +106,24 @@ def listar_ultimas_transacoes(user_id: int, limite: int = 5) -> str:
         cursor.execute(
             """
             SELECT categoria, valor, tipo, created_at
-            FROM transacoes
-            WHERE user_id = %s
-            ORDER BY created_at DESC, id DESC
+            FROM (
+                SELECT categoria, valor, tipo, created_at, id AS sort_id
+                FROM transacoes
+                WHERE user_id = %s
+                UNION ALL
+                SELECT
+                    COALESCE(subcategoria, categoria) AS categoria,
+                    valor_medio AS valor,
+                    'despesa' AS tipo,
+                    created_at,
+                    id AS sort_id
+                FROM custos_mensais
+                WHERE user_id = %s AND confirmado = true
+            ) AS combined
+            ORDER BY created_at DESC, sort_id DESC
             LIMIT %s
             """,
-            (user_id, limite),
+            (user_id, user_id, limite),
         )
         dados = cursor.fetchall()
 
