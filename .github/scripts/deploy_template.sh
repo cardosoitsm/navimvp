@@ -14,7 +14,11 @@ printf '%s' '__ACR_PASS__' | base64 -d | docker login '__ACR_REG__' -u '__ACR_US
 
 # Ensure Docker Compose V2 is installed (avoids docker-compose v1 ContainerConfig bug)
 if ! docker compose version >/dev/null 2>&1; then
-  apt-get update -qq && apt-get install -y -qq docker-compose-plugin
+  echo "Installing Docker Compose V2 binary..."
+  mkdir -p /root/.docker/cli-plugins
+  curl -SL "https://github.com/docker/compose/releases/download/v2.29.2/docker-compose-linux-x86_64" \
+    -o /root/.docker/cli-plugins/docker-compose
+  chmod +x /root/.docker/cli-plugins/docker-compose
 fi
 echo "Compose: $(docker compose version)"
 
