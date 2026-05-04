@@ -12,13 +12,13 @@ printf '%s' '__ENV__'     | base64 -d > .env
 
 printf '%s' '__ACR_PASS__' | base64 -d | docker login '__ACR_REG__' -u '__ACR_USER__' --password-stdin
 
-if docker compose version >/dev/null 2>&1; then
-  COMPOSE_CMD="docker compose"
-  else
-    COMPOSE_CMD="docker-compose"
-    fi
+# Ensure Docker Compose V2 is installed (avoids docker-compose v1 ContainerConfig bug)
+if ! docker compose version >/dev/null 2>&1; then
+  apt-get update -qq && apt-get install -y -qq docker-compose-plugin
+fi
+echo "Compose: $(docker compose version)"
 
-    $COMPOSE_CMD -f docker-compose.prod.yml pull app
-    $COMPOSE_CMD -f docker-compose.prod.yml up -d --no-deps --remove-orphans
+docker compose -f docker-compose.prod.yml pull app
+docker compose -f docker-compose.prod.yml up -d --no-deps --remove-orphans
 
-    echo "=== Deploy complete ==="
+echo "=== Deploy complete ==="
