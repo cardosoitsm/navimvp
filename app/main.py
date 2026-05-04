@@ -259,7 +259,11 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
     onboarding_state = get_onboarding_state(user_id)
     existing_card_names = get_card_names(user_id)
 
-    if onboarding_state == USER_REGISTRATION_PENDING:
+    # BUG-E2E-002 FIX: query intents must bypass onboarding state handlers.
+    # Users in any onboarding state should always be able to query spending/health.
+    _QUERY_INTENTS = frozenset({"financial_health", "recent_transactions", "budget_status"})
+    _is_query = intent in _QUERY_INTENTS or "quanto gastei" in msg_lower
+if onboarding_state == USER_REGISTRATION_PENDING:
         nome = parse_user_name(mensagem)
         if nome:
             save_user_name(user_id, nome)
@@ -272,7 +276,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             resposta = registration_retry_prompt()
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
-    if onboarding_state == ACCOUNT_SNAPSHOT_PENDING:
+    if onboarding_state == ACCOUNT_SNAPSHOT_PENDING and not _is_query:
         if incoming_media:
             _register_document_upload(
                 "extrato",
@@ -464,10 +468,10 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         if budgets:
             _reviewed = is_statement_already_reviewed(user_id)
             next_state = COST_REVIEW_PENDING if has_cost_review_candidates(user_id) and not is_cost_review_completed(user_id) and not _reviewed else CARD_COUNT_PENDING
-            if _reviewed and next_state == CARD_COUNT_PENDING:
+            if _reviewed and next_state == CARD_COUNT_PENDING and not _is_query:
                 logger.info("cost_review_skipped_already_reviewed user_id=%s", user_id)
             save_budgets(user_id, budgets, next_state)
-            if next_state == COST_REVIEW_PENDING:
+            if next_state == COST_REVIEW_PENDING and not _is_query:
                 fixed_costs, variable_costs = infer_cost_candidates(user_id)
                 resposta = (
                     f"{build_budget_setup_confirmation(budgets)}\n\n"
@@ -485,10 +489,10 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         if should_skip_budget_onboarding(mensagem):
             _reviewed = is_statement_already_reviewed(user_id)
             next_state = COST_REVIEW_PENDING if has_cost_review_candidates(user_id) and not is_cost_review_completed(user_id) and not _reviewed else CARD_COUNT_PENDING
-            if _reviewed and next_state == CARD_COUNT_PENDING:
+            if _reviewed and next_state == CARD_COUNT_PENDING and not _is_query:
                 logger.info("cost_review_skipped_already_reviewed user_id=%s", user_id)
             mark_budget_onboarding_completed(user_id, next_state)
-            if next_state == COST_REVIEW_PENDING:
+            if next_state == COST_REVIEW_PENDING and not _is_query:
                 fixed_costs, variable_costs = infer_cost_candidates(user_id)
                 resposta = (
                     "Tudo bem. A gente pode configurar seus limites depois.\n\n"
@@ -503,7 +507,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         resposta = budget_setup_retry_prompt()
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
-    if onboarding_state == COST_REVIEW_PENDING:
+    if onboarding_state == COST_REVIEW_PENDING and not _is_query:
         is_post_cards = bool(existing_card_names)
         if is_post_cards and is_document_processing(user_id):
             resposta = "Ainda estou processando sua fatura, aguarde um momento..."
@@ -591,7 +595,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         resposta = cost_review_retry_prompt()
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
-    if onboarding_state == CARD_COUNT_PENDING:
+    if onboarding_state == CARD_COUNT_PENDING and not _is_query:
         try:
             if should_skip_card_setup(mensagem):
                 save_card_count(user_id, 0)
@@ -649,7 +653,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
-    if onboarding_state == CARD_NAMES_PENDING:
+    if onboarding_state == CARD_NAMES_PENDING and not _is_query:
         try:
             expected_count = get_pending_card_total(user_id)
             if expected_count <= 0:
@@ -696,7 +700,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
-    if onboarding_state == CARD_INVOICE_PENDING:
+    if onboarding_state == CARD_INVOICE_PENDING and not _is_query:
         try:
             current_card = get_current_card(user_id)
             if not current_card:
@@ -749,7 +753,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             resposta = card_invoice_retry_prompt(str(fallback_name))
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
-    if onboarding_state != ONBOARDING_COMPLETE and not is_document_onboarding_completed(user_id):
+    if onboarding_state != ONBOARDING_COMPLETE and not is_document_onboarding_completed(user_id) and not _is_query:
         budgets = parse_budget_message(mensagem)
         if budgets:
             save_budgets(user_id, budgets, None)
