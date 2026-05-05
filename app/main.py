@@ -263,7 +263,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
     # Users in any onboarding state should always be able to query spending/health.
     _QUERY_INTENTS = frozenset({"financial_health", "recent_transactions", "budget_status"})
     _is_query = intent in _QUERY_INTENTS or "quanto gastei" in msg_lower
-if onboarding_state == USER_REGISTRATION_PENDING:
+    if onboarding_state == USER_REGISTRATION_PENDING:
         nome = parse_user_name(mensagem)
         if nome:
             save_user_name(user_id, nome)
