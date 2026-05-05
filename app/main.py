@@ -409,7 +409,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             resposta = _build_analysis_message(analysis, "fatura_cartao")
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
-        if (onboarding_state == BUDGET_SETUP_PENDING or not is_budget_onboarding_completed(user_id)) and not _is_query:
+    if (onboarding_state == BUDGET_SETUP_PENDING or not is_budget_onboarding_completed(user_id)) and not _is_query:
         if is_waiting_for_document(user_id):
             try:
                 if incoming_media:
