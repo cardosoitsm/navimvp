@@ -63,6 +63,13 @@ jobs:
           DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
         run: python3 .github/scripts/build_deploy.py
 
+      - name: Start Azure VM
+        run: |
+          az vm start \
+            --resource-group navimvp-hom-rg \
+            --name navimvp-hom-vm
+          echo "VM is running"
+
       - name: Deploy to Azure VM
         run: |
           az vm run-command invoke \
