@@ -1,0 +1,77 @@
+version: "3.8"
+
+services:
+
+  test-db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: navimvp
+      POSTGRES_PASSWORD: navimvppw
+      POSTGRES_DB: navimvp_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U navimvp -d navimvp_test"]
+      interval: 3s
+      timeout: 5s
+      retries: 15
+    tmpfs:
+      - /var/lib/postgresql/data
+    networks:
+      - test-net
+
+  openai-stub:
+    build:
+      context: .
+      dockerfile: tests/stubs/Dockerfile.openai_stub
+    ports:
+      - "11435:11435"
+    environment:
+      PORT: 11435
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11435/stub/health || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+    networks:
+      - test-net
+
+  test-runner:
+    build:
+      context: .
+      dockerfile: tests/stubs/Dockerfile.test_runner
+    depends_on:
+      test-db:
+        condition: service_healthy
+      openai-stub:
+        condition: service_healthy
+    environment:
+      DATABASE_HOST: test-db
+      DATABASE_PORT: 5432
+      DATABASE_NAME: navimvp_test
+      DATABASE_USER: navimvp
+      DATABASE_PASSWORD: navimvppw
+      SECRET_KEY: harness-test-secret-key
+      ADMIN_SECRET_KEY: harness-admin-secret-key
+      ALGORITHM: HS256
+      OPENAI_API_KEY: sk-stub-key-harness
+      OPENAI_BASE_URL: http://openai-stub:11435/v1
+      ACCOUNT_SID: test-account-sid
+      AUTH_TOKEN: test-auth-token
+      TWILIO_NUMBER: "whatsapp:+5511999999999"
+      APP_ENV: test
+      APP_DEBUG: "false"
+    command: >
+      pytest tests/
+        -v
+        --tb=short
+        --cov=app
+        --cov-report=term-missing
+        --cov-report=xml:/reports/coverage.xml
+        --junitxml=/reports/test-results.xml
+    volumes:
+      - ./reports:/reports
+    networks:
+      - test-net
+
+networks:
+  test-net:
+    driver: bridge

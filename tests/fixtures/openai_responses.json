@@ -1,0 +1,22 @@
+{
+  "_comment": "Scripted OpenAI response fixtures for the Navi stub server",
+  "despesa_transporte_50": "[{\"tipo\": \"despesa\", \"categoria\": \"transporte\", \"valor\": 50.0}]",
+  "despesa_alimentacao_35": "[{\"tipo\": \"despesa\", \"categoria\": \"alimentacao\", \"valor\": 35.0}]",
+  "despesa_alimentacao_100": "[{\"tipo\": \"despesa\", \"categoria\": \"alimentacao\", \"valor\": 100.0}]",
+  "despesa_alimentacao_120": "[{\"tipo\": \"despesa\", \"categoria\": \"alimentacao\", \"valor\": 120.0}]",
+  "despesa_farmacia_200": "[{\"tipo\": \"despesa\", \"categoria\": \"farmacia\", \"valor\": 200.0}]",
+  "despesa_farmacia_50": "[{\"tipo\": \"despesa\", \"categoria\": \"farmacia\", \"valor\": 50.0}]",
+  "despesa_farmacia_280": "[{\"tipo\": \"despesa\", \"categoria\": \"farmacia\", \"valor\": 280.0}]",
+  "despesa_farmacia_300": "[{\"tipo\": \"despesa\", \"categoria\": \"farmacia\", \"valor\": 300.0}]",
+  "despesa_lazer_50": "[{\"tipo\": \"despesa\", \"categoria\": \"lazer\", \"valor\": 50.0}]",
+  "despesa_lazer_30": "[{\"tipo\": \"despesa\", \"categoria\": \"lazer\", \"valor\": 30.0}]",
+  "despesa_lazer_25": "[{\"tipo\": \"despesa\", \"categoria\": \"lazer\", \"valor\": 25.0}]",
+  "despesa_lazer_75": "[{\"tipo\": \"despesa\", \"categoria\": \"lazer\", \"valor\": 75.0}]",
+  "despesa_mercado_120": "[{\"tipo\": \"despesa\", \"categoria\": \"mercado\", \"valor\": 120.0}]",
+  "despesa_outros_50": "[{\"tipo\": \"despesa\", \"categoria\": \"outros\", \"valor\": 50.0}]",
+  "receita_salario_3000": "[{\"tipo\": \"receita\", \"categoria\": \"salario\", \"valor\": 3000.0}]",
+  "receita_salario_5000": "[{\"tipo\": \"receita\", \"categoria\": \"salario\", \"valor\": 5000.0}]",
+  "multi_transporte_alimentacao": "[{\"tipo\": \"despesa\", \"categoria\": \"transporte\", \"valor\": 20.0}, {\"tipo\": \"despesa\", \"categoria\": \"alimentacao\", \"valor\": 35.0}]",
+  "nao_reconhecido": "[]",
+  "vazio": "[]"
+}

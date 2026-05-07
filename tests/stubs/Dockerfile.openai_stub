@@ -1,0 +1,7 @@
+FROM python:3.12-slim
+WORKDIR /app
+RUN pip install --no-cache-dir fastapi uvicorn
+COPY tests/stubs/openai_stub.py /app/openai_stub.py
+COPY tests/fixtures/openai_responses.json /app/tests/fixtures/openai_responses.json
+EXPOSE 11435
+CMD ["python", "openai_stub.py"]
