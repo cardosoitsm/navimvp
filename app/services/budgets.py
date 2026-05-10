@@ -193,7 +193,7 @@ def _current_budget_progress(user_id: int, categoria: str) -> tuple[float, float
             """
             SELECT limite_mensal
             FROM orcamentos
-            WHERE user_id = %s AND categoria = %s
+            WHERE user_id = %s AND LOWER(categoria) = LOWER(%s)
             """,
             (user_id, categoria),
         )
@@ -206,7 +206,7 @@ def _current_budget_progress(user_id: int, categoria: str) -> tuple[float, float
             SELECT COALESCE(SUM(valor), 0)
             FROM transacoes
             WHERE user_id = %s
-              AND categoria = %s
+              AND LOWER(categoria) = LOWER(%s)
               AND DATE_TRUNC('month', created_at) = DATE_TRUNC('month', NOW())
             """,
             (user_id, categoria),
