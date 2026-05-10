@@ -211,10 +211,17 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
     user_id, novo = get_or_create_whatsapp_user(numero)
 
     if novo:
+        _nome = parse_user_name(mensagem)
+        if _nome:
+            save_user_name(user_id, _nome)
+            _name_greeting = f"Prazer, {_nome}! Vou usar esse nome para te chamar por aqui.\n\n"
+        else:
+            _name_greeting = ""
+        set_onboarding_state(user_id, ACCOUNT_SNAPSHOT_PENDING)
         resposta = (
             "Olá! Que bom ter você por aqui.\n\n"
             "Eu sou o Navi e vou te ajudar a acompanhar seus gastos de um jeito leve, sem complicação.\n\n"
-            f"{registration_prompt()}"
+            f"{_name_greeting}{account_snapshot_prompt()}"
         )
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
@@ -485,7 +492,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             return Response(content=build_twiml(resposta), media_type="application/xml")
         if is_budget_edit_request(mensagem):
             resposta = budget_edit_prompt()
-            return Response(content=build_twiml(resposta), media_type="application/xml")
+            return Response(content=build_twiml(resposta), media_type="applichation/xml")
         if should_skip_budget_onboarding(mensagem):
             _reviewed = is_statement_already_reviewed(user_id)
             next_state = COST_REVIEW_PENDING if has_cost_review_candidates(user_id) and not is_cost_review_completed(user_id) and not _reviewed else CARD_COUNT_PENDING
