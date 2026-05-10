@@ -280,4 +280,4 @@ def reject_pending_transaction(user_id: int) -> str:
         return "Não encontrei nenhuma transação pendente para cancelar."
 
     clear_pending_confirmation(user_id)
-    return "Tudo bem. Não registrei a transação. Me envie a correção quando quiser."
+    return "Tudo bem. Transação descartada. Me envie a correção quando quiser."
