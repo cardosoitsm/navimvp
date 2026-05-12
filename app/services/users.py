@@ -6,11 +6,10 @@ from app.db import get_cursor
 from app.services.budgets import ensure_user_settings
 from app.services.onboarding import USER_REGISTRATION_PENDING, set_onboarding_state
 
-AUTO_PASSWORD_PREFIX = "whatsapp-user:"
 
 
 def _auto_password(numero_limpo: str) -> str:
-    return hash_password(f"{AUTO_PASSWORD_PREFIX}{numero_limpo}")
+    return hash_password(numero_limpo)
 
 
 def _table_exists(cursor, table_name: str) -> bool:
@@ -103,15 +102,9 @@ def get_user_locale(user_id: int) -> str:
     return str(result[0]) if result and result[0] else "pt-BR"
 
 
-def delete_user_account(email: str) -> bool:
+def delete_user_account(user_id: int) -> bool:
     with get_cursor() as (conn, cursor):
         try:
-            cursor.execute("SELECT id FROM usuarios WHERE email = %s", (email,))
-            result = cursor.fetchone()
-            if not result:
-                return False
-
-            user_id = int(result[0])
             dynamic_tables = [
                 table_name
                 for table_name in _tables_with_user_id(cursor)

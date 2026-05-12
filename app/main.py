@@ -974,7 +974,13 @@ def admin_reset_user(payload: AdminResetRequest, request: Request) -> dict[str, 
         raise HTTPException(status_code=403, detail="Chave administrativa invalida")
 
     try:
-        deleted = delete_user_account(payload.email)
+        from app.db import get_cursor as _gc
+        with _gc() as (_, _cur):
+            _cur.execute("SELECT id FROM usuarios WHERE email = %s", (payload.email,))
+            _row = _cur.fetchone()
+        deleted = False
+        if _row:
+            deleted = delete_user_account(int(_row[0]))
         return {"deleted": deleted}
     except HTTPException:
         raise

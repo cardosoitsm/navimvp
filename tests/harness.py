@@ -14,6 +14,7 @@ def test_phone(index: int) -> str:
         raise ValueError(f'test_phone index must be 1-9999, got {index}')
     return f'+55009{index:08d}'
 
+test_phone.__test__ = False
 def post_webhook(client: TestClient, body: str, phone: str) -> object:
     return client.post('/webhook', data={'Body': body, 'From': f'whatsapp:{phone}'})
 
