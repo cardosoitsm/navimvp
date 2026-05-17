@@ -2157,6 +2157,45 @@ def mark_fatura_reviewed(user_id: int) -> None:
         conn.commit()
 
 
+def _notify_analysis_failure(
+    document_id: int,
+    user_id: int,
+    numero: str,
+    on_complete_state: str | None,
+    hinted_type: str,
+) -> None:
+    """Advance onboarding state and send a fallback WhatsApp message when document analysis fails.
+
+    Without this, the user is left waiting indefinitely after uploading a PDF
+    that the extraction pipeline could not parse.
+    """
+    from app.services.onboarding import set_onboarding_state
+    from app.services.twilio import responder_split
+
+    if on_complete_state:
+        set_onboarding_state(user_id, on_complete_state)
+        logger.info("doc_failure_state_advanced document_id=%d user_id=%d state=%s", document_id, user_id, on_complete_state)
+
+    if hinted_type == "fatura_cartao":
+        fallback_msg = (
+            "Recebi sua fatura, mas não consegui extrair os lançamentos automaticamente. "
+            "Isso pode acontecer com PDFs escaneados ou com layout mais complexo.\n\n"
+            "Você pode tentar enviar o arquivo novamente ou seguir em frente — "
+            "sempre podemos revisar a fatura depois."
+        )
+    else:
+        fallback_msg = (
+            "Recebi seu documento, mas não consegui processar o conteúdo automaticamente. "
+            "Você pode tentar enviar novamente ou seguir em frente."
+        )
+
+    try:
+        responder_split(numero, fallback_msg)
+        logger.info("doc_failure_fallback_sent document_id=%d user_id=%d", document_id, user_id)
+    except Exception:
+        logger.exception("doc_failure_fallback_error document_id=%d user_id=%d", document_id, user_id)
+
+
 def process_stored_document(
     document_id: int,
     user_id: int,
@@ -2217,6 +2256,8 @@ def process_stored_document(
                 )
     else:
         logger.warning("doc_processing_no_analysis document_id=%d user_id=%d", document_id, user_id)
+        if on_complete_numero:
+            _notify_analysis_failure(document_id, user_id, on_complete_numero, on_complete_state, hinted_type)
 
 
 def build_document_receipt_message(tipo_documento: str, partial: bool = False) -> str:
