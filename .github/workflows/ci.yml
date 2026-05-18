@@ -1,0 +1,256 @@
+name: CI — Test & Security Scan
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────
+  # JOB 1: Automated Tests
+  # ─────────────────────────────────────────────────────────────────
+  test:
+    name: Pytest + Coverage
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: navimvp
+          POSTGRES_PASSWORD: navimvppw
+          POSTGRES_DB: navimvp_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+    env:
+      DATABASE_HOST: localhost
+      DATABASE_PORT: 5432
+      DATABASE_NAME: navimvp_test
+      DATABASE_USER: navimvp
+      DATABASE_PASSWORD: navimvppw
+      SECRET_KEY: ${{ secrets.CI_SECRET_KEY }}
+      ADMIN_SECRET_KEY: ${{ secrets.CI_ADMIN_SECRET_KEY }}
+      ALGORITHM: HS256
+      OPENAI_API_KEY: sk-dummy-for-tests
+      ACCOUNT_SID: test-sid
+      AUTH_TOKEN: test-token
+      TWILIO_NUMBER: "whatsapp:+5511999999999"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r app/requirements.txt
+          pip install pytest pytest-cov httpx
+
+      - name: Run test suite
+        run: |
+          pytest tests/ \
+            --tb=short \
+            -v \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --junitxml=test-results.xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: test-results.xml
+
+      - name: Check coverage threshold
+        run: |
+          python -c "
+          import xml.etree.ElementTree as ET
+          tree = ET.parse('coverage.xml')
+          rate = float(tree.getroot().get('line-rate', 0)) * 100
+          print(f'Coverage: {rate:.1f}%')
+          if rate < 65:
+              raise SystemExit(f'Coverage {rate:.1f}% is below minimum threshold of 65%')
+          "
+
+  # ─────────────────────────────────────────────────────────────────
+  # JOB 2: Security Scan (Bandit + pip-audit)
+  # ─────────────────────────────────────────────────────────────────
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install security tools
+        run: pip install bandit pip-audit
+
+      - name: Run Bandit (SAST)
+        run: |
+          bandit -r app/ \
+            -f json \
+            -o bandit-report.json \
+            --severity-level medium \
+            --confidence-level medium \
+            -x app/__pycache__ \
+            || true
+          python -c "
+          import json, sys
+          with open('bandit-report.json') as f:
+              report = json.load(f)
+          issues = report.get('results', [])
+          high = [i for i in issues if i['issue_severity'] == 'HIGH']
+          if high:
+              print('HIGH severity findings:')
+              for i in high:
+                  print(f\"  [{i['issue_id']}] {i['issue_text']} — {i['filename']}:{i['line_number']}\")
+              sys.exit(1)
+          print(f'Bandit: {len(issues)} issues found, 0 HIGH severity.')
+          "
+
+      - name: Run pip-audit (dependency vulnerabilities)
+        run: |
+          pip-audit -r app/requirements.txt \
+            --format=json \
+            --output=pip-audit-report.json \
+            || true
+          python -c "
+          import json, sys
+          with open('pip-audit-report.json') as f:
+              report = json.load(f)
+          vulns = report.get('dependencies', [])
+          critical = [v for v in vulns if v.get('vulns')]
+          if critical:
+              print('Vulnerable dependencies:')
+              for dep in critical:
+                  for vuln in dep['vulns']:
+                      print(f\"  {dep['name']}=={dep['version']}: {vuln['id']} ({vuln.get('fix_versions', 'no fix')})\")
+              sys.exit(1)
+          print('pip-audit: No known vulnerabilities found.')
+          "
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-reports
+          path: |
+            bandit-report.json
+            pip-audit-report.json
+
+  # ─────────────────────────────────────────────────────────────────
+  # JOB 3: Lint
+  # ─────────────────────────────────────────────────────────────────
+  lint:
+    name: Ruff Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ruff
+        run: pip install ruff
+
+      - name: Run Ruff
+        run: ruff check app/ --output-format=github
+
+  # ─────────────────────────────────────────────────────────────────
+  # JOB 4: Docker Build Validation
+  # ─────────────────────────────────────────────────────────────────
+  docker-build:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image (no push)
+        run: |
+          docker build \
+            -f app/Dockerfile \
+            -t navimvp:ci-${{ github.sha }} \
+            .
+
+      - name: Verify image starts and health endpoint responds
+        run: |
+          docker run -d \
+            --name navi-ci \
+            -p 8000:8000 \
+            -e SECRET_KEY=ci-test-key \
+            -e ADMIN_SECRET_KEY=ci-admin-key \
+            -e DATABASE_HOST=doesnotexist \
+            -e DATABASE_NAME=navimvp \
+            -e DATABASE_USER=navimvp \
+            -e DATABASE_PASSWORD=navimvppw \
+            -e OPENAI_API_KEY=sk-dummy \
+            navimvp:ci-${{ github.sha }}
+          sleep 5
+          # App may report degraded due to no DB, but must NOT crash
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || echo "000")
+          echo "Health endpoint status: $STATUS"
+          if [ "$STATUS" = "000" ]; then
+            echo "ERROR: Container crashed or not responding"
+            docker logs navi-ci
+            exit 1
+          fi
+          docker stop navi-ci
+
+  # ─────────────────────────────────────────────────────────────────
+  # All checks gate — required for merge
+  # ─────────────────────────────────────────────────────────────────
+  all-checks-passed:
+    name: All CI Checks Passed
+    runs-on: ubuntu-latest
+    needs: [test, security, lint, docker-build]
+    if: always()
+
+    steps:
+      - name: Verify all jobs passed
+        run: |
+          if [[ "${{ needs.test.result }}" != "success" || \
+                "${{ needs.security.result }}" != "success" || \
+                "${{ needs.lint.result }}" != "success" || \
+                "${{ needs.docker-build.result }}" != "success" ]]; then
+            echo "One or more CI jobs failed:"
+            echo "  test: ${{ needs.test.result }}"
+            echo "  security: ${{ needs.security.result }}"
+            echo "  lint: ${{ needs.lint.result }}"
+            echo "  docker-build: ${{ needs.docker-build.result }}"
+            exit 1
+          fi
+          echo "All CI checks passed ✅"

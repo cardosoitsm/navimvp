@@ -11,15 +11,15 @@ BUDGET_EDIT_WORDS = {"alterar", "adicionar", "ajustar", "mudar", "editar", "revi
 BUDGET_CONTEXT_WORDS = {"budget", "orcamento", "limite", "limites", "categoria", "categorias"}
 
 CATEGORY_ALIASES = {
-    "farmacia": "farmacia",
-    "mercado": "mercado",
-    "supermercado": "mercado",
-    "alimentacao": "alimentacao",
-    "alimentacao ": "alimentacao",
-    "lazer": "lazer",
-    "transporte": "transporte",
-    "moradia": "moradia",
-    "saude": "saude",
+    "farmacia": "Farmacia",
+    "mercado": "Mercado",
+    "supermercado": "Mercado",
+    "alimentacao": "Alimentacao",
+    "alimentacao ": "Alimentacao",
+    "lazer": "Lazer",
+    "transporte": "Transporte",
+    "moradia": "Moradia",
+    "saude": "Saude",
 }
 
 ALERT_LEVELS = (
@@ -193,7 +193,7 @@ def _current_budget_progress(user_id: int, categoria: str) -> tuple[float, float
             """
             SELECT limite_mensal
             FROM orcamentos
-            WHERE user_id = %s AND categoria = %s
+            WHERE user_id = %s AND LOWER(categoria) = LOWER(%s)
             """,
             (user_id, categoria),
         )
@@ -206,7 +206,7 @@ def _current_budget_progress(user_id: int, categoria: str) -> tuple[float, float
             SELECT COALESCE(SUM(valor), 0)
             FROM transacoes
             WHERE user_id = %s
-              AND categoria = %s
+              AND LOWER(categoria) = LOWER(%s)
               AND DATE_TRUNC('month', created_at) = DATE_TRUNC('month', NOW())
             """,
             (user_id, categoria),
@@ -230,6 +230,42 @@ def build_budget_status_message(user_id: int, categoria: str) -> str:
         f"Você já gastou {format_brl(gasto)} ({percentual:.0f}% do limite).\n"
         f"Ainda restam {format_brl(max(restante, 0))}."
     )
+
+
+def build_all_budgets_status_message(user_id: int) -> str:
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            """
+            SELECT o.categoria, o.limite_mensal,
+                   COALESCE(SUM(t.valor), 0) AS gasto
+            FROM orcamentos o
+            LEFT JOIN transacoes t
+              ON t.user_id = o.user_id
+             AND t.categoria = o.categoria
+             AND DATE_TRUNC('month', t.created_at) = DATE_TRUNC('month', NOW())
+            WHERE o.user_id = %s
+            GROUP BY o.categoria, o.limite_mensal
+            ORDER BY o.categoria
+            """,
+            (user_id,),
+        )
+        rows = cursor.fetchall()
+
+    if not rows:
+        return "Você ainda não configurou limites por categoria."
+
+    linhas = ["Seus limites neste mês:", ""]
+    for categoria, limite_raw, gasto_raw in rows:
+        limite = float(limite_raw)
+        gasto = float(gasto_raw)
+        restante = max(limite - gasto, 0)
+        percentual = (gasto / limite) * 100 if limite > 0 else 0
+        linhas.append(
+            f"- {categoria}: {format_brl(gasto)} de {format_brl(limite)} "
+            f"({percentual:.0f}%) — restam {format_brl(restante)}"
+        )
+
+    return "\n".join(linhas)
 
 
 def _register_alert_if_needed(user_id: int, categoria: str, percentual: float) -> str:

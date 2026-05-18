@@ -1,0 +1,215 @@
+{
+  "main": {
+    "id": "5a8d4d8551a74fec",
+    "type": "split",
+    "children": [
+      {
+        "id": "17c88f0ee93d3f34",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "b4992d06b0dbfcaf",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "CHANGELOG.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "CHANGELOG"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "47d1e8fef0533230",
+    "type": "split",
+    "children": [
+      {
+        "id": "d5bbbf9b709de57f",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "de8cfa00e0b98804",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "5fce87a4a31090bf",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "8abfcc479029b954",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 200
+  },
+  "right": {
+    "id": "44bbe486828afd76",
+    "type": "split",
+    "children": [
+      {
+        "id": "3da0d5ef36680f40",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "4c7902c92e0240da",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "CHANGELOG.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for CHANGELOG"
+            }
+          },
+          {
+            "id": "d9af439c0812b733",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "CHANGELOG.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from CHANGELOG"
+            }
+          },
+          {
+            "id": "0098faf5ebd476a3",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "03cca835ba5145b5",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "9c79c0d022ff33d9",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "CHANGELOG.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of CHANGELOG"
+            }
+          }
+        ],
+        "currentTab": 4
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "b4992d06b0dbfcaf",
+  "lastOpenFiles": [
+    "ARCHITECTURE.md",
+    "HARNESS.md",
+    "CLAUDE.md",
+    "docs/QA_E2E_REPORT.md",
+    "agents/sdk/__init__.py",
+    "agents/sdk/tools.py",
+    "agents/sdk/requirements.txt",
+    "agents/sdk/README.md",
+    "agents/sdk/qa_agent.py",
+    "agents/sdk/pm_agent.py",
+    "agents/sdk/orchestrator.py",
+    "agents/sdk/dev_agent.py",
+    "agents/sdk/base_agent.py",
+    "agents/commands/qa.md",
+    "agents/commands/pm.md",
+    "agents/commands/dev.md",
+    "agents/sdk",
+    "agents/commands",
+    "docs/decisions/i18n-strategy.md",
+    "CHANGELOG.md",
+    "2026-05-17.md",
+    "Untitled.md",
+    "tests/TRACEABILITY.md",
+    "docs/SPEC.md",
+    "Untitled.canvas"
+  ]
+}

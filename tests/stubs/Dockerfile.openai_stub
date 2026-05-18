@@ -1,0 +1,22 @@
+FROM python:3.12-slim
+<<<<<<< HEAD
+WORKDIR /app
+RUN pip install --no-cache-dir fastapi uvicorn
+COPY tests/stubs/openai_stub.py /app/openai_stub.py
+COPY tests/fixtures/openai_responses.json /app/tests/fixtures/openai_responses.json
+EXPOSE 11435
+=======
+
+WORKDIR /app
+
+# Install only what the stub needs
+RUN pip install --no-cache-dir fastapi uvicorn
+
+# Copy stub and fixtures
+COPY tests/stubs/openai_stub.py /app/openai_stub.py
+COPY tests/fixtures/openai_responses.json /app/tests/fixtures/openai_responses.json
+
+EXPOSE 11435
+
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
+CMD ["python", "openai_stub.py"]

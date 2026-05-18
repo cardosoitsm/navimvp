@@ -4,12 +4,12 @@ from psycopg2 import IntegrityError
 from app.auth import hash_password, verify_password
 from app.db import get_cursor
 from app.services.budgets import ensure_user_settings
+from app.services.onboarding import USER_REGISTRATION_PENDING, set_onboarding_state
 
-AUTO_PASSWORD_PREFIX = "whatsapp-user:"
 
 
 def _auto_password(numero_limpo: str) -> str:
-    return hash_password(f"{AUTO_PASSWORD_PREFIX}{numero_limpo}")
+    return hash_password(numero_limpo)
 
 
 def _table_exists(cursor, table_name: str) -> bool:
@@ -56,6 +56,7 @@ def get_or_create_whatsapp_user(numero: str) -> tuple[int, bool]:
         conn.commit()
         user_id = int(created[0])
         ensure_user_settings(user_id)
+        set_onboarding_state(user_id, USER_REGISTRATION_PENDING)
         return user_id, True
 
 
@@ -94,15 +95,16 @@ def authenticate_user(email: str, senha: str) -> int:
     return int(user_id)
 
 
-def delete_user_account(email: str) -> bool:
+def get_user_locale(user_id: int) -> str:
+    with get_cursor() as (_, cursor):
+        cursor.execute("SELECT locale FROM usuarios WHERE id = %s", (user_id,))
+        result = cursor.fetchone()
+    return str(result[0]) if result and result[0] else "pt-BR"
+
+
+def delete_user_account(user_id: int) -> bool:
     with get_cursor() as (conn, cursor):
         try:
-            cursor.execute("SELECT id FROM usuarios WHERE email = %s", (email,))
-            result = cursor.fetchone()
-            if not result:
-                return False
-
-            user_id = int(result[0])
             dynamic_tables = [
                 table_name
                 for table_name in _tables_with_user_id(cursor)

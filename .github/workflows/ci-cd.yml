@@ -37,15 +37,16 @@ jobs:
 
       - name: Verify deployment files
         run: |
-          ls -la
-          ls -la db
           test -f docker-compose.prod.yml
           test -f db/init.sql
 
-      - name: Login to Azure
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Login to Azure CLI
+        run: |
+          az login --service-principal \
+            --username "${{ secrets.AZURE_CLIENT_ID }}" \
+            --password "${{ secrets.AZURE_CLIENT_SECRET }}" \
+            --tenant "${{ secrets.AZURE_TENANT_ID }}"
+          az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
 
       - name: Build deploy script
         env:
@@ -60,9 +61,14 @@ jobs:
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
           ADMIN_SECRET_KEY: ${{ secrets.ADMIN_SECRET_KEY }}
           DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+        run: python3 .github/scripts/build_deploy.py
+
+      - name: Start Azure VM
         run: |
-          python3 << 'PYEOF'
-          import base64, os
+          az vm start \
+            --resource-group navimvp-hom-rg \
+            --name navimvp-hom-vm
+          echo "VM is running"
 
           compose_b64 = base64.b64encode(open('docker-compose.prod.yml', 'rb').read()).decode()
           db_sql_b64  = base64.b64encode(open('db/init.sql', 'rb').read()).decode()
@@ -99,14 +105,16 @@ jobs:
 
           printf '%s' '{pw}' | base64 -d | docker login '{reg}' -u '{user2}' --password-stdin
 
-          if docker compose version >/dev/null 2>&1; then
-            COMPOSE_CMD="docker compose"
-          else
-            COMPOSE_CMD="docker-compose"
+          # Ensure Docker Compose V2 plugin is installed (avoids docker-compose v1 ContainerConfig bug)
+          if ! docker compose version >/dev/null 2>&1; then
+            echo "Installing Docker Compose V2 plugin..."
+            apt-get update -qq
+            apt-get install -y -qq docker-compose-plugin
           fi
+          echo "Compose version: $(docker compose version)"
 
-          $COMPOSE_CMD -f docker-compose.prod.yml pull app
-          $COMPOSE_CMD -f docker-compose.prod.yml up -d --no-deps --remove-orphans
+          docker compose -f docker-compose.prod.yml pull app
+          docker compose -f docker-compose.prod.yml up -d --no-deps --remove-orphans
 
           echo "=== Deploy complete ==="
           '''.format(

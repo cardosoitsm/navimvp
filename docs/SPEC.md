@@ -15,6 +15,9 @@ O **Navi** é um assistente financeiro pessoal via **WhatsApp**. O usuário não
 - Receber e interpretar extratos bancários e faturas de cartão de crédito
 - Responder perguntas sobre saúde financeira, limites e histórico de gastos
 - Guiar o usuário por um onboarding conversacional completo antes de entrar no uso pleno
+- Atuar como um assistente financeiro apoiando o usuário manter a saúde financeira 
+- Se adaptar ao tom do usuário para gerar uma empatia
+- Implementar camadas de segurança para garantir o compliance LGPD
 
 ### Canais
 | Canal | Uso |
@@ -26,18 +29,18 @@ O **Navi** é um assistente financeiro pessoal via **WhatsApp**. O usuário não
 
 ## Stack Tecnológica
 
-| Camada | Tecnologia |
-|---|---|
-| Linguagem | Python 3.12 |
-| Web Framework | FastAPI + Uvicorn |
-| Banco de dados | PostgreSQL 15 |
-| Acesso ao banco | psycopg2-binary (sem ORM, SQL direto) |
-| IA / NLP | OpenAI API — `gpt-4.1-mini` |
-| Leitura de PDF | pypdf |
-| Mensageria WhatsApp | Twilio |
-| Autenticação | JWT (python-jose) + bcrypt (passlib) |
-| Configuração | pydantic-settings (.env) |
-| Deploy | Docker Compose |
+| Camada              | Tecnologia                            |
+| ------------------- | ------------------------------------- |
+| Linguagem           | Python 3.12                           |
+| Web Framework       | FastAPI + Uvicorn                     |
+| Banco de dados      | PostgreSQL 15                         |
+| Acesso ao banco     | psycopg2-binary (sem ORM, SQL direto) |
+| IA / NLP            | OpenAI API — `gpt-4.1-mini`           |
+| Leitura de PDF      | pypdf                                 |
+| Mensageria WhatsApp | Twilio                                |
+| Autenticação        | JWT (python-jose) + bcrypt (passlib)  |
+| Configuração        | pydantic-settings (.env)              |
+| Deploy              | Docker Compose                        |
 
 ---
 
@@ -45,10 +48,11 @@ O **Navi** é um assistente financeiro pessoal via **WhatsApp**. O usuário não
 
 ### Tabelas
 
+<<<<<<< HEAD
 | Tabela | Descrição |
 |---|---|
 | `usuarios` | Contas de usuário. WhatsApp users usam o número como `email` e senha gerada automaticamente. |
-| `transacoes` | Despesas e receitas registradas. Colunas: `tipo`, `categoria`, `valor`, `user_id`, `created_at`. |
+| `transacoes` | Despesas e receitas registradas. Colunas: `tipo`, `categoria`, `valor`, `user_id`, `created_at`, `parcela_atual` (int nullable), `parcelas_totais` (int nullable). Para compras à vista ambos são NULL; para parcelamentos registram a parcela corrente e o total. |
 | `confirmacoes_pendentes` | Transação aguardando confirmação explícita do usuário (uma por vez, por usuário). |
 | `configuracoes_usuario` | Estado do onboarding e flags de progresso: `onboarding_state`, `pending_card_total`, `pending_card_index`, `orcamento_onboarding_concluido`, `documentos_onboarding_concluido`, `aguardando_documento`, `custos_onboarding_concluido`, `ultimo_topico`, `ultimo_cartao_id`. |
 | `orcamentos` | Limites mensais por categoria. Chave primária composta `(user_id, categoria)`. |
@@ -58,6 +62,21 @@ O **Navi** é um assistente financeiro pessoal via **WhatsApp**. O usuário não
 | `faturas_cartao` | Faturas extraídas de documentos: valor total, vencimento, pagamento mínimo, emissor, cartão vinculado. |
 | `cartoes_usuario` | Cartões cadastrados: nome, ordem, melhor dia de compra, limite de crédito, flag `ativo`. |
 | `custos_mensais` | Custos fixos e variáveis inferidos do extrato: descrição, categoria, valor médio, tipo (`fixo`/`variavel`), flag `confirmado`. |
+=======
+| Tabela                   | Descrição                                                                                                                                                                                                                                                                   |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `usuarios`               | Contas de usuário. WhatsApp users usam o número como `email` e senha gerada automaticamente.                                                                                                                                                                                |
+| `transacoes`             | Despesas e receitas registradas. Colunas: `tipo`, `categoria`, `valor`, `user_id`, `created_at`.                                                                                                                                                                            |
+| `confirmacoes_pendentes` | Transação aguardando confirmação explícita do usuário (uma por vez, por usuário).                                                                                                                                                                                           |
+| `configuracoes_usuario`  | Estado do onboarding e flags de progresso: `onboarding_state`, `pending_card_total`, `pending_card_index`, `orcamento_onboarding_concluido`, `documentos_onboarding_concluido`, `aguardando_documento`, `custos_onboarding_concluido`, `ultimo_topico`, `ultimo_cartao_id`. |
+| `orcamentos`             | Limites mensais por categoria. Chave primária composta `(user_id, categoria)`.                                                                                                                                                                                              |
+| `orcamento_alertas`      | Registro de alertas já disparados. Garante que cada nível (50%, 80%, 100%) é enviado uma única vez por mês por categoria.                                                                                                                                                   |
+| `documentos_financeiros` | Documentos recebidos (extrato, fatura, PDF genérico). Armazena URL da mídia, tipo, status de processamento e JSON extraído pela IA.                                                                                                                                         |
+| `perfil_financeiro`      | Snapshot financeiro do usuário: saldo estimado, renda identificada, despesas fixas estimadas, pressão de cartão.                                                                                                                                                            |
+| `faturas_cartao`         | Faturas extraídas de documentos: valor total, vencimento, pagamento mínimo, emissor, cartão vinculado.                                                                                                                                                                      |
+| `cartoes_usuario`        | Cartões cadastrados: nome, ordem, melhor dia de compra, limite de crédito, flag `ativo`.                                                                                                                                                                                    |
+| `custos_mensais`         | Custos fixos e variáveis inferidos do extrato: descrição, categoria, valor médio, tipo (`fixo`/`variavel`), flag `confirmado`.                                                                                                                                              |
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 
 ### Migrations
 Todas as DDLs são executadas via `SCHEMA_STATEMENTS` em `app/db.py` no startup da aplicação. Não há ferramenta de migration separada — os statements usam `CREATE TABLE IF NOT EXISTS` e `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` para serem idempotentes.
@@ -120,6 +139,11 @@ CARD_DETAILS_PENDING
 CARD_INVOICE_PENDING
   Para cada cartão: pede a fatura atual (imagem ou PDF).
   Aceita: mídia; "pular" avança para o próximo cartão.
+      │
+      ▼
+INVOICE_REVIEW_PENDING
+  Após processar a última fatura, exibe os lançamentos extraídos e aguarda confirmação.
+  Aceita: "sim"/"ok" confirma e avança; qualquer outro texto é tratado como ajuste (igual ao STATEMENT_REVIEW_PENDING).
       │
       ▼
 DOCUMENT_ONBOARDING_PENDING
@@ -360,6 +384,38 @@ ONBOARDING_COMPLETE
 
 ---
 
+#### [S4] Posso comprar isso? — Issue #24
+- O usuário pergunta se pode fazer uma compra de determinado valor.
+- O Navi extrai o valor da mensagem e cruza com renda, compromissos e saldo.
+- **Critérios de aceite:**
+  - [ ] Intent `affordability_check` detectado em frases como "posso comprar", "consigo pagar", "tenho dinheiro para".
+  - [ ] Valor extraído da mensagem via regex.
+  - [ ] Quando há renda: calcula comprometimento após a compra e classifica (alto ≥ 100%, atenção ≥ 80%, viável).
+  - [ ] Quando não há renda: usa saldo estimado como referência.
+  - [ ] Sem dados suficientes: pede mais informações.
+
+#### [S4] Vale a pena esse empréstimo? — Issue #26
+- O usuário descreve condições de empréstimo e pergunta se vale a pena.
+- O Navi extrai parcela mensal, prazo e total; calcula custo em juros e impacto no orçamento.
+- **Critérios de aceite:**
+  - [ ] Intent `loan_evaluation` detectado em frases como "vale a pena esse empréstimo", "parcelas de X", "financiamento de R$Y".
+  - [ ] Extrai: valor total, parcela mensal, número de parcelas (ao menos dois desses).
+  - [ ] Calcula custo em juros quando há parcela + prazo.
+  - [ ] Quando há renda: calcula comprometimento após o empréstimo.
+  - [ ] Quando faltam dados: solicita ao usuário.
+
+#### [S4] Recomendações práticas — Issue #27
+- O usuário pede sugestões para melhorar sua situação financeira.
+- O Navi usa GPT com o perfil financeiro do usuário para gerar 3 recomendações acionáveis.
+- Fallback por regras quando a API não está disponível.
+- **Critérios de aceite:**
+  - [ ] Intent `financial_recommendations` detectado em frases como "como economizar", "me dá uma dica", "como melhorar".
+  - [ ] 3 recomendações personalizadas baseadas nos dados do usuário.
+  - [ ] Linguagem natural, sem listas numeradas.
+  - [ ] Fallback por regras quando não há dados suficientes ou sem API key.
+
+---
+
 ### S5 — Experiência avançada
 
 #### [S5] Confirmação antes de salvar dados — Issue #30
@@ -373,6 +429,16 @@ ONBOARDING_COMPLETE
   - [ ] "NÃO" descarta e solicita correção.
   - [ ] Nova transação pendente sobrescreve a anterior.
 
+#### [S5] Suporte a voz — Issue #28
+- O Navi aceita mensagens de voz enviadas pelo WhatsApp (formato `audio/ogg; codecs=opus`).
+- O áudio é transcrito via OpenAI Whisper (`whisper-1`) em português antes de ser processado como texto normal.
+- Se a transcrição falhar, o usuário recebe mensagem orientando a enviar por texto.
+- Não há saída de voz — respostas são sempre em texto.
+- **Critérios de aceite:**
+  - [ ] Mensagem de voz transcrita e processada como texto.
+  - [ ] Outros tipos de áudio (mp3, wav, webm, amr) também aceitos.
+  - [ ] Falha na transcrição não quebra o fluxo — retorna mensagem de fallback.
+
 #### [S5] Leitura de recibos e imagens — Issue #29
 - O Navi aceita imagens de recibos, extratos e faturas enviadas diretamente no WhatsApp.
 - Processamento via GPT-4.1-mini com visão multimodal.
@@ -380,6 +446,19 @@ ONBOARDING_COMPLETE
   - [ ] Imagens JPEG, PNG e WebP processadas corretamente.
   - [ ] Tipo do documento inferido por contexto e tipo MIME.
   - [ ] Dados extraídos salvos no perfil financeiro.
+
+---
+
+#### [S5] Experiência mais fluida no WhatsApp — Issue #31
+- Mensagens longas (> 1.500 caracteres) são divididas automaticamente em múltiplos `<Message>` TwiML em parágrafos limpos.
+- Saudações ("oi", "bom dia", "como vai") são reconhecidas como intent `greeting` e recebem resposta natural sem tentar parsear como transação.
+- Mensagem vazia recebe resposta orientativa em vez de erro.
+- Respostas de erro de transação não reconhecida fornecem contexto útil em linguagem natural.
+- **Critérios de aceite:**
+  - [ ] Mensagem com > 1.500 chars é enviada como múltiplos `<Message>` sem cortar palavras.
+  - [ ] "Oi", "boa tarde", "tudo bem" retornam mensagem de boas-vindas, não erro de transação.
+  - [ ] Mensagem vazia retorna orientação natural.
+  - [ ] Todos os textos ao usuário usam português com diacríticos corretos.
 
 ---
 
@@ -411,6 +490,17 @@ ONBOARDING_COMPLETE
 - Parsing de nomes de cartão não aceita saudações ou confirmações como nomes válidos.
 - Parsing de quantidade de cartões aceita palavras por extenso além de dígitos.
 
+#### [S6] Etapa de registro do usuário — Issue #46
+- Novo usuário WhatsApp inicia em `user_registration_pending` antes de `account_snapshot_pending`.
+- Navi solicita apenas o nome preferido (primeiro nome ou apelido) — sem dados sensíveis.
+- Prompt inclui aviso de privacidade LGPD: uso restrito a personalização, dados protegidos.
+- Nome válido: 2–60 caracteres, sem tokens inválidos (e.g., "sim", "não", números puros).
+- Resposta inválida → retry com mensagem curta sem repetir o aviso completo.
+- Após nome aceito: saudação personalizada + transição automática para `account_snapshot_pending`.
+- Coluna `nome VARCHAR(255) NULL` adicionada à tabela `usuarios` via migração idempotente.
+- Saudação (`greeting`) personalizada: "Olá, {nome}!" quando nome cadastrado.
+- Usuários registrados via API REST não passam por essa etapa (iniciam direto em `account_snapshot_pending`).
+
 ---
 
 ## Detalhamento de Integrações
@@ -420,6 +510,19 @@ ONBOARDING_COMPLETE
 - Resposta deve ser TwiML: `<Response><Message>texto</Message></Response>`.
 - Webhook fallback configurado para retornar mensagem de instabilidade.
 - Envio proativo via API REST do Twilio (para notificações fora do ciclo de request/response).
+
+### Detecção de parcelamentos em faturas
+
+O GPT é instruído a identificar padrões de parcelamento comuns em faturas brasileiras:
+- `Parc 02/12`, `Parcela 2/12`, `02/12`, `(2 de 12)`, `PARC 02/12`
+
+Campos retornados por lançamento: `parcela_atual` (int) e `parcelas_totais` (int), ou `null` para compras à vista.
+
+Exibição: `- 2026-04-08 Magazine Luiza: -R$150.00 (variável | Outros | parcela 02/12)`
+
+Saúde financeira inclui compromissos futuros: `SUM(valor × (parcelas_totais − parcela_atual))` para todos os parcelamentos em aberto.
+
+---
 
 ### OpenAI (GPT-4.1-mini)
 Usado em 4 contextos diferentes:
@@ -459,6 +562,74 @@ Calculada como razão entre `valor_total_fatura` e `renda_identificada`:
 
 ### Confirmação de transação
 Solicitada quando a mensagem **não** tem simultaneamente: verbo de transação claro (`gastei`, `paguei`, `comprei`, `recebi`, `ganhei`, `transferi`) **e** valor explícito no formato `R$XX` ou `XX,XX`.
+
+---
+
+## Estratégia de Internacionalização (i18n)
+
+O Navi foi projetado desde o início para suportar múltiplos idiomas sem exigir código específico por idioma.
+
+### Princípio central
+A responsabilidade de acentuação e ortografia está no GPT, não em normalização pós-resposta. O código não deve conter listas de palavras de nenhum idioma específico.
+
+### Implementação atual
+- Coluna `locale VARCHAR(10) DEFAULT 'pt-BR'` na tabela `usuarios`.
+- Em cada chamada ao GPT, o locale do usuário é passado via instrução no prompt system: `"Idioma do usuário: {locale}. Retorne todas as strings com ortografia e acentuação CORRETAS desse idioma."`
+- GPT lida nativamente com acentuação correta quando instruído — sem pós-processamento no backend.
+
+### Expansão para novo idioma
+Para suportar `es-ES`, `fr-FR`, `en-US` ou outro locale: basta permitir o novo valor no campo `locale` e documentar. Nenhuma linha de código no backend precisa mudar.
+
+### O que NÃO fazer
+- Não adicionar mapas hardcoded de palavras por idioma (ex: `alimentacao → alimentação`).
+- Não criar funções de normalização de acentos dependentes de idioma específico.
+- Se o GPT errar acentuação ocasionalmente em MVP, a solução é ajustar o prompt — não normalizar pós-resposta.
+
+---
+
+## Princípios de Extração de Valores Monetários
+
+### Responsabilidade do GPT, não do código
+
+O Navi atende múltiplas instituições financeiras (bancos brasileiros e futuramente internacionais) com formatos de extrato e fatura completamente distintos. Por isso, **o código nunca interpreta layout de documento** — toda a lógica de identificação de valores é delegada ao GPT.
+
+### O que o código NUNCA faz
+
+- Não contém regex para detectar padrões monetários como `R$ X,XX` ou `X.XX`
+- Não lista ou detecta nomes de moedas (USD, EUR, BRL) no código
+- Não tem heurística para "o valor é o maior número da linha" ou "o valor é o último número"
+- Não assume separador decimal (vírgula vs ponto) baseado em locale
+- Não assume posição de colunas em tabelas de extrato ou fatura
+
+### O que o código FAZ
+
+- Passa o texto bruto integral ao GPT (sem filtragem de conteúdo)
+- Pede ao GPT que retorne o **valor efetivo** (`credit` ou `debit`) como número decimal e o código de moeda em **ISO 4217** (`moeda`)
+- Valida apenas a estrutura do retorno: número decimal válido, código ISO 4217 de 3 letras
+- Persiste exatamente o que o GPT retornou
+- Se o GPT retornar `confidence: "low"`, exibe ao usuário pedindo confirmação
+
+### Múltiplas colunas de valor
+
+Extratos e faturas podem ter várias colunas numéricas por transação (valor em moeda estrangeira, saldo, conversão, código de documento). O prompt instrui o GPT genericamente:
+> "Para cada lançamento, identifique qual é o VALOR EFETIVO debitado ou creditado na conta do usuário. Coloque esse valor em `credit` ou `debit` e o código ISO 4217 da moeda no campo `moeda`. Se não tiver certeza, retorne `confidence: 'low'`."
+
+### Estratégia de extração de texto do PDF
+
+Para que o GPT receba valores íntegros, a camada de extração preserva a estrutura espacial do PDF antes de enviar o texto ao prompt. A função `_extract_pdfplumber_page` aplica, em ordem:
+
+1. **Extração por tabela** — `extract_tables()` com `vertical_strategy=lines` e, se não houver linhas, `vertical_strategy=text`. Retorna linhas separadas por ` | ` quando detecta ≥ 2 linhas úteis.
+2. **Agrupamento por Y a partir de `extract_words()`** — cada palavra vem com `x0`/`top`. Palavras com `top` dentro de ±3 px pertencem à mesma linha visual; dentro da linha ordena-se por `x0`. Mantém valores multicoluna inteiros (ex.: `US$ 0,00 R$ 3.542,34`), sem qualquer suposição sobre quantidade ou posição de colunas — funciona para qualquer banco/emissor.
+3. **`extract_text()` cru** — último recurso, usado apenas quando as estratégias anteriores não retornam texto. Pode linearizar e fragmentar valores, mas garante saída para layouts atípicos.
+
+A estratégia escolhida é logada como `pdf_extraction_strategy strategy=tables|words|text`. Essa escolha é agnóstica a layout e não substitui as regras acima — o GPT continua sendo o único responsável por interpretar o significado financeiro do texto extraído.
+
+### Correção de bugs de valor
+
+Se um valor incorreto for extraído:
+- A causa é sempre no **prompt** (GPT não entendeu o layout)
+- A correção é sempre no **prompt** (melhorar instrução ao GPT)
+- Nunca adicionar lógica de parsing ou heurística no backend
 
 ---
 

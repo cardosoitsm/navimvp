@@ -119,6 +119,7 @@ SCHEMA_STATEMENTS = (
         user_id BIGINT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
         descricao VARCHAR(255) NOT NULL,
         categoria VARCHAR(100) NULL,
+        subcategoria VARCHAR(100) NULL,
         valor_medio NUMERIC(12, 2) NOT NULL,
         tipo_custo VARCHAR(20) NOT NULL CHECK (tipo_custo IN ('fixo', 'variavel')),
         confirmado BOOLEAN NOT NULL DEFAULT FALSE,
@@ -179,6 +180,10 @@ SCHEMA_STATEMENTS = (
     ADD COLUMN IF NOT EXISTS cartao_id BIGINT NULL
     """,
     """
+    ALTER TABLE custos_mensais
+    ADD COLUMN IF NOT EXISTS subcategoria VARCHAR(100) NULL
+    """,
+    """
     UPDATE configuracoes_usuario
     SET onboarding_state = CASE
         WHEN documentos_onboarding_concluido THEN 'onboarding_complete'
@@ -191,6 +196,80 @@ SCHEMA_STATEMENTS = (
     """,
     "CREATE INDEX IF NOT EXISTS idx_transacoes_user_id ON transacoes(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_transacoes_user_categoria ON transacoes(user_id, categoria)",
+    """
+    ALTER TABLE usuarios
+    ADD COLUMN IF NOT EXISTS nome VARCHAR(255) NULL
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS categorias (
+        id BIGSERIAL PRIMARY KEY,
+        nome VARCHAR(100) NOT NULL UNIQUE,
+        subcategorias TEXT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    """
+    ALTER TABLE perfil_financeiro
+    ADD COLUMN IF NOT EXISTS limite_conta NUMERIC(12, 2) NULL
+    """,
+    """
+    ALTER TABLE perfil_financeiro
+    ADD COLUMN IF NOT EXISTS provisao_encargos NUMERIC(12, 2) NULL
+    """,
+    """
+    ALTER TABLE perfil_financeiro
+    ADD COLUMN IF NOT EXISTS data_debito_encargos DATE NULL
+    """,
+    """
+    UPDATE categorias SET nome = INITCAP(nome)
+    WHERE nome ~ '^[a-z]'
+    """,
+    """
+    INSERT INTO categorias (nome, subcategorias) VALUES
+        ('Alimentacao',  'supermercado, restaurante, delivery, padaria, lanche, hortifruti'),
+        ('Transporte',   'combustivel, uber, taxi, estacionamento, onibus, metro, pedagio'),
+        ('Saude',        'farmacia, consulta, exame, plano_saude, dentista, academia'),
+        ('Moradia',      'aluguel, condominio, energia, agua, gas, internet, manutencao'),
+        ('Educacao',     'mensalidade, material, curso, livros, escola'),
+        ('Lazer',        'cinema, streaming, viagem, hobby, esporte, assinatura'),
+        ('Comunicacao',  'telefone, celular, tv_a_cabo, plano_dados'),
+        ('Financeiro',   'parcela, emprestimo, financiamento, seguro, taxa_bancaria, cartao'),
+        ('Vestuario',    'roupas, calcados, acessorios'),
+        ('Outros',       'gorjeta, doacao, presente, diversos')
+    ON CONFLICT (nome) DO NOTHING
+    """,
+    """
+    UPDATE categorias SET nome = INITCAP(nome)
+    WHERE nome ~ '^[a-z]'
+    """,
+    """
+    ALTER TABLE transacoes
+    ADD COLUMN IF NOT EXISTS subcategoria VARCHAR(100) NULL
+    """,
+    """
+    ALTER TABLE custos_mensais
+    ADD COLUMN IF NOT EXISTS subcategoria VARCHAR(100) NULL
+    """,
+    """
+    ALTER TABLE documentos_financeiros
+    ADD COLUMN IF NOT EXISTS revisado BOOLEAN NOT NULL DEFAULT FALSE
+    """,
+    """
+    ALTER TABLE usuarios
+    ADD COLUMN IF NOT EXISTS locale VARCHAR(10) NOT NULL DEFAULT 'pt-BR'
+    """,
+    """
+    ALTER TABLE transacoes
+    ADD COLUMN IF NOT EXISTS parcela_atual INTEGER NULL
+    """,
+    """
+    ALTER TABLE transacoes
+    ADD COLUMN IF NOT EXISTS parcelas_totais INTEGER NULL
+    """,
+    """
+    ALTER TABLE custos_mensais
+    ALTER COLUMN descricao TYPE TEXT
+    """,
 )
 
 
@@ -211,6 +290,9 @@ def get_cursor():
     cursor = conn.cursor()
     try:
         yield conn, cursor
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         cursor.close()
         conn.close()

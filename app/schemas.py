@@ -2,7 +2,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 
 class User(BaseModel):
-    email: EmailStr
+    email: str
     senha: str = Field(min_length=4)
 
 
@@ -12,13 +12,15 @@ class Message(BaseModel):
 
 class ParsedTransaction(BaseModel):
     tipo: str = "despesa"
-    categoria: str = "outros"
+    categoria: str = "Outros"
+    subcategoria: str | None = None
     valor: float = 0
 
 
 class PendingTransaction(BaseModel):
     tipo: str = "despesa"
-    categoria: str = "outros"
+    categoria: str = "Outros"
+    subcategoria: str | None = None
     valor: float
 
 

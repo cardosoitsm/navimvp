@@ -1,0 +1,194 @@
+name: CD — Build, Push & Deploy to Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Manual deploy reason
+        required: true
+        default: Manual deployment triggered by QA Agent
+
+# Only one production deploy at a time
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: navimvpacr461e8d08.azurecr.io
+  IMAGE_NAME: navimvp
+  RESOURCE_GROUP: navimvp-hom-rg
+  VM_NAME: navimvp-hom-vm
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────
+  # JOB 1: Build & Push to Azure Container Registry
+  # ─────────────────────────────────────────────────────────────────
+  build-and-push:
+    name: Build & Push Image to ACR
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Log in to Azure Container Registry
+        run: |
+          az acr login --name navimvpacr461e8d08
+
+      - name: Set image metadata
+        id: meta
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | head -c 8)
+          echo "tags=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest,${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "version=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Docker image
+        id: build
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | head -c 8)
+          docker build \
+            -f app/Dockerfile \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA} \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            .
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA}
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest | cut -d@ -f2)
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Image pushed: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA}"
+
+  # ─────────────────────────────────────────────────────────────────
+  # JOB 2: Deploy to Azure VM
+  # ─────────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to Azure VM
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy new image on VM
+        run: |
+          az vm run-command invoke \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.VM_NAME }} \
+            --command-id RunShellScript \
+            --scripts "
+              set -euo pipefail
+
+              echo '=== Navi Production Deploy ==='
+              echo 'Commit: ${{ github.sha }}'
+              echo 'Triggered by: ${{ github.actor }}'
+
+              cd /opt/navi
+
+              # Pull latest image from ACR
+              az acr login --name navimvpacr461e8d08
+              docker-compose -f docker-compose.prod.yml pull app
+
+              # Rolling restart (zero-downtime: stop old, start new)
+              docker-compose -f docker-compose.prod.yml up -d --no-deps app
+
+              # Wait for health check
+              echo 'Waiting for application to be healthy...'
+              for i in \$(seq 1 30); do
+                STATUS=\$(curl -sf http://localhost:8000/health | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('status','unknown'))\" 2>/dev/null || echo 'unreachable')
+                echo \"  Attempt \$i/30: \$STATUS\"
+                if [ \"\$STATUS\" = 'ok' ] || [ \"\$STATUS\" = 'degraded' ]; then
+                  echo 'Health check passed.'
+                  break
+                fi
+                if [ \$i -eq 30 ]; then
+                  echo 'ERROR: Application did not become healthy in 90 seconds.'
+                  docker-compose -f docker-compose.prod.yml logs --tail=50 app
+                  exit 1
+                fi
+                sleep 3
+              done
+
+              # Clean up old images to save disk space
+              docker image prune -f --filter 'until=24h'
+
+              echo '=== Deploy complete ==='
+            "
+
+      - name: Verify production health via public endpoint
+        run: |
+          echo "Verifying production health endpoint..."
+          # Give the app a moment to stabilize
+          sleep 10
+
+          # Try the health endpoint up to 5 times
+          for i in $(seq 1 5); do
+            STATUS=$(curl -sf "https://${{ secrets.PRODUCTION_URL }}/health" \
+              -H "Accept: application/json" \
+              | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','unknown'))" \
+              2>/dev/null || echo "unreachable")
+
+            echo "Attempt $i: $STATUS"
+            if [ "$STATUS" = "ok" ]; then
+              echo "✅ Production is healthy."
+              break
+            fi
+            if [ $i -eq 5 ]; then
+              echo "❌ Production health check failed after 5 attempts."
+              exit 1
+            fi
+            sleep 15
+          done
+
+      - name: Record deployment
+        if: success()
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | head -c 8)
+          echo "✅ Deployed ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA}"
+          echo "   Commit: ${{ github.sha }}"
+          echo "   Ref: ${{ github.ref }}"
+          echo "   Triggered by: ${{ github.actor }}"
+          echo "   Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  # ─────────────────────────────────────────────────────────────────
+  # JOB 3: Post-deploy notification
+  # ─────────────────────────────────────────────────────────────────
+  notify:
+    name: Notify on Failure
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy]
+    if: failure()
+
+    steps:
+      - name: Create GitHub Issue on deploy failure
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[INCIDENT] Production deploy failed — ${context.sha.substring(0,8)}`,
+              body: `## ⚠️ Production Deploy Failed\n\n` +
+                    `- **Commit:** ${context.sha}\n` +
+                    `- **Ref:** ${context.ref}\n` +
+                    `- **Triggered by:** ${context.actor}\n` +
+                    `- **Workflow run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}\n\n` +
+                    `**Immediate action required.** Check the workflow logs and consider reverting to the previous release.\n\n` +
+                    `cc @${context.actor}`,
+              labels: ['type:fix', 'priority:critical', 'status:ready-for-dev']
+            });

@@ -5,19 +5,23 @@ from fastapi import HTTPException
 from openai import OpenAI
 
 from app.config import get_settings
+from app.services.logger import get_logger
 from app.db import get_cursor
 from app.schemas import ParsedTransaction, PendingTransaction
 from app.services.budgets import build_budget_feedback
 from app.services.conversation import save_pending_confirmation, should_request_confirmation
 from app.services.formatting import format_brl
+from app.services.users import get_user_locale
 from app.services.summary import gerar_insight
 
 
+logger = get_logger("navi.chat")
+
 REGRAS_CATEGORIAS = {
-    "alimentacao": ["ifood", "restaurante", "lanche", "pizza", "hamburguer"],
-    "transporte": ["uber", "99", "taxi", "gasolina", "combustivel"],
-    "moradia": ["aluguel", "condominio", "luz", "agua"],
-    "lazer": ["cinema", "netflix", "spotify", "bar"],
+    "Alimentacao": ["ifood", "restaurante", "lanche", "pizza", "hamburguer"],
+    "Transporte": ["uber", "99", "taxi", "gasolina", "combustivel"],
+    "Moradia": ["aluguel", "condominio", "luz", "agua"],
+    "Lazer": ["cinema", "netflix", "spotify", "bar"],
 }
 
 
@@ -66,7 +70,7 @@ def _parse_openai_json(content: str) -> list[dict]:
     raise ValueError("Formato inesperado retornado pela IA")
 
 
-def _extract_transactions_from_ai(text: str) -> list[ParsedTransaction]:
+def _extract_transactions_from_ai(text: str, user_locale: str) -> list[ParsedTransaction]:
     settings = get_settings()
     if not settings.openai_api_key:
         raise HTTPException(
@@ -78,14 +82,21 @@ def _extract_transactions_from_ai(text: str) -> list[ParsedTransaction]:
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
         messages=[
-            {"role": "system", "content": "Responda apenas em JSON valido."},
+            {
+                "role": "system",
+                "content": (
+                    "Responda apenas em JSON valido. "
+                    f"Idioma do usuário: {user_locale}. "
+                    "Retorne todas as strings (categoria, subcategoria) com ortografia e acentuação CORRETAS desse idioma."
+                ),
+            },
             {
                 "role": "user",
                 "content": (
                     'Classifique a mensagem:\n\n'
                     f'"{text}"\n\n'
                     "Retorne uma lista de objetos no formato:\n"
-                    '[{"tipo":"receita ou despesa","categoria":"categoria","valor":numero}]'
+                    '[{"tipo":"receita ou despesa","categoria":"categoria","subcategoria":"subcategoria especifica ou null","valor":numero}]'
                 ),
             },
         ],
@@ -106,9 +117,10 @@ def _extract_transactions_from_ai(text: str) -> list[ParsedTransaction]:
 
 def _normalize_transaction(text: str, transaction: ParsedTransaction) -> PendingTransaction:
     categoria_regra = classificar_categoria(text)
-    categoria = categoria_regra or _normalizar_texto(transaction.categoria or "outros")
+    categoria = categoria_regra or (transaction.categoria or "outros").strip()
     tipo = _normalizar_texto(transaction.tipo or "despesa")
-    return PendingTransaction(tipo=tipo, categoria=categoria, valor=float(transaction.valor))
+    subcategoria = transaction.subcategoria.strip() if transaction.subcategoria else None
+    return PendingTransaction(tipo=tipo, categoria=categoria, subcategoria=subcategoria, valor=float(transaction.valor))
 
 
 def _build_confirmation_message(transaction: PendingTransaction) -> str:
@@ -120,22 +132,24 @@ def _build_confirmation_message(transaction: PendingTransaction) -> str:
 
 
 def process_user_message(text: str, user_id: int) -> dict[str, str]:
+    user_locale = get_user_locale(user_id)
     try:
-        transactions = _extract_transactions_from_ai(text)
+        transactions = _extract_transactions_from_ai(text, user_locale)
     except (json.JSONDecodeError, ValueError):
+        logger.warning("ai_parse_error text_len=%d", len(text))
         raise HTTPException(
             status_code=422,
             detail=(
-                "Não consegui entender isso como uma transação.\n\n"
-                "Se quiser, tente de um destes jeitos:\n"
-                '- "Gastei R$50 em Uber"\n'
-                '- "Quanto gastei no mês?"\n'
-                '- enviar um extrato ou uma fatura em imagem/PDF'
+                "Não consegui entender isso como uma transação. "
+                "Pode tentar de outra forma? "
+                'Por exemplo: "Gastei R$50 no Uber", "quanto gastei no mês?" '
+                "ou me enviar um extrato ou fatura em imagem/PDF."
             ),
         )
     except HTTPException:
         raise
     except Exception as exc:
+        logger.exception("ai_call_error text_len=%d", len(text))
         raise HTTPException(
             status_code=502,
             detail="Não foi possível interpretar a mensagem agora.",
@@ -145,11 +159,9 @@ def process_user_message(text: str, user_id: int) -> dict[str, str]:
         raise HTTPException(
             status_code=422,
             detail=(
-                "Não encontrei uma transação válida nessa mensagem.\n\n"
-                "Mas eu ainda posso te ajudar de outras formas:\n"
-                '- registrar um gasto, como "Gastei R$50 em Uber"\n'
-                '- resumir seus gastos do mês\n'
-                '- receber um extrato ou uma fatura em imagem/PDF'
+                "Não encontrei uma transação nessa mensagem. "
+                'Se quiser, pode registrar um gasto (ex: "Gastei R$50 em Uber"), '
+                "ver seus gastos do mês ou me enviar um extrato ou fatura em imagem/PDF."
             ),
         )
 
@@ -167,13 +179,14 @@ def process_user_message(text: str, user_id: int) -> dict[str, str]:
         for transaction in normalized_transactions:
             cursor.execute(
                 """
-                INSERT INTO transacoes (tipo, categoria, valor, user_id)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO transacoes (tipo, categoria, subcategoria, valor, user_id)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
-                (transaction.tipo, transaction.categoria, transaction.valor, user_id),
+                (transaction.tipo, transaction.categoria, transaction.subcategoria, transaction.valor, user_id),
             )
 
-            respostas.append(f"- {transaction.categoria}: {format_brl(transaction.valor)}")
+            cat_display = f"{transaction.categoria}/{transaction.subcategoria}" if transaction.subcategoria else transaction.categoria
+            respostas.append(f"- {cat_display}: {format_brl(transaction.valor)}")
             ultima_categoria = transaction.categoria
 
         conn.commit()

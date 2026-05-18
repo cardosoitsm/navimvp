@@ -4,10 +4,14 @@ psycopg2-binary==2.9.10
 openai==1.99.9
 requests==2.32.3
 pypdf==5.4.0
+pdfplumber==0.11.4
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 python-jose==3.5.0
 pydantic-settings==2.10.1
 python-multipart==0.0.20
 email-validator==2.2.0
-bcrypt==4.0.1
+pymupdf==1.24.14
+pytesseract==0.3.13
+Pillow==11.2.1
+Babel==2.16.0

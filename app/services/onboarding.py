@@ -9,13 +9,16 @@ from app.config import get_settings
 from app.db import get_cursor
 from app.services.formatting import format_brl
 
+USER_REGISTRATION_PENDING = "user_registration_pending"
 ACCOUNT_SNAPSHOT_PENDING = "account_snapshot_pending"
+STATEMENT_REVIEW_PENDING = "statement_review_pending"
 BUDGET_SETUP_PENDING = "budget_setup_pending"
 COST_REVIEW_PENDING = "cost_review_pending"
 CARD_COUNT_PENDING = "card_count_pending"
 CARD_NAMES_PENDING = "card_names_pending"
 CARD_DETAILS_PENDING = "card_details_pending"
 CARD_INVOICE_PENDING = "card_invoice_pending"
+INVOICE_REVIEW_PENDING = "invoice_review_pending"
 DOCUMENT_ONBOARDING_PENDING = "document_onboarding_pending"
 ONBOARDING_COMPLETE = "onboarding_complete"
 
@@ -97,14 +100,94 @@ VARIABLE_COST_KEYWORDS = (
     "loterias",
 )
 
+<<<<<<< HEAD
 COST_CATEGORY_KEYWORDS = {
-    "moradia": ("aluguel", "condominio", "condomínio", "agua", "água", "gas", "gás", "energia", "luz"),
-    "saude": ("farmacia", "farmácia", "seguro", "plano", "consulta", "medico", "médico"),
-    "alimentacao": ("mercado", "supermercado", "ifood", "restaurante", "padaria", "cantina"),
-    "transporte": ("uber", "combustivel", "combustível", "posto", "99", "pedagio", "pedágio"),
-    "comunicacao": ("telefone", "vivo", "claro", "tim", "internet"),
-    "financeiro": ("boleto", "juros", "iof", "tarifa", "financiamento", "parcela"),
-    "lazer": ("lazer", "cinema", "show", "streaming", "loterias"),
+    "Moradia": ("aluguel", "condominio", "condomínio", "agua", "água", "gas", "gás", "energia", "luz"),
+    "Saude": ("farmacia", "farmácia", "seguro", "plano", "consulta", "medico", "médico"),
+    "Alimentacao": ("mercado", "supermercado", "ifood", "restaurante", "padaria", "cantina"),
+    "Transporte": ("uber", "combustivel", "combustível", "posto", "99", "pedagio", "pedágio"),
+    "Comunicacao": ("telefone", "vivo", "claro", "tim", "internet"),
+    "Financeiro": ("boleto", "juros", "iof", "tarifa", "financiamento", "parcela"),
+    "Lazer": ("lazer", "cinema", "show", "streaming", "loterias"),
+=======
+COST_TAXONOMY = {
+    "Moradia": {
+        "keywords": ("aluguel", "condominio", "condomínio", "agua", "água", "gas", "gás", "energia", "luz"),
+        "subcategories": {
+            "Aluguel": ("aluguel",),
+            "Condomínio": ("condominio", "condomínio"),
+            "Energia": ("energia", "luz"),
+            "Água": ("agua", "água"),
+            "Gás": ("gas", "gás"),
+        },
+    },
+    "Saúde": {
+        "keywords": ("farmacia", "farmácia", "seguro", "plano", "consulta", "medico", "médico"),
+        "subcategories": {
+            "Farmácia": ("farmacia", "farmácia"),
+            "Plano de Saúde": ("plano",),
+            "Seguro": ("seguro",),
+            "Consulta": ("consulta", "medico", "médico"),
+        },
+    },
+    "Alimentação": {
+        "keywords": ("mercado", "supermercado", "ifood", "restaurante", "padaria", "cantina"),
+        "subcategories": {
+            "Mercado": ("mercado", "supermercado"),
+            "Delivery": ("ifood",),
+            "Restaurante": ("restaurante",),
+            "Padaria": ("padaria",),
+            "Cantina": ("cantina",),
+        },
+    },
+    "Transporte": {
+        "keywords": ("uber", "combustivel", "combustível", "posto", "99", "pedagio", "pedágio", "estacionamento"),
+        "subcategories": {
+            "Aplicativos": ("uber", "99"),
+            "Combustível": ("combustivel", "combustível", "posto"),
+            "Pedágio": ("pedagio", "pedágio"),
+            "Estacionamento": ("estacionamento",),
+        },
+    },
+    "Comunicação": {
+        "keywords": ("telefone", "vivo", "claro", "tim", "internet"),
+        "subcategories": {
+            "Telefonia": ("telefone", "vivo", "claro", "tim"),
+            "Internet": ("internet",),
+        },
+    },
+    "Educação": {
+        "keywords": ("escola", "faculdade", "curso", "editora", "sociaedu", "socieda", "revista", "livro", "globo"),
+        "subcategories": {
+            "Escola": ("escola", "sociaedu", "socieda"),
+            "Cursos": ("curso", "faculdade"),
+            "Revistas": ("editora", "revista", "globo"),
+            "Livros": ("livro",),
+        },
+    },
+    "Financeiro": {
+        "keywords": ("boleto", "juros", "iof", "tarifa", "financiamento", "parcela"),
+        "subcategories": {
+            "Boletos": ("boleto",),
+            "Juros": ("juros", "iof"),
+            "Financiamento": ("financiamento", "parcela"),
+            "Tarifas": ("tarifa",),
+        },
+    },
+    "Lazer": {
+        "keywords": ("lazer", "cinema", "show", "streaming", "loterias"),
+        "subcategories": {
+            "Streaming": ("streaming",),
+            "Cinema": ("cinema",),
+            "Shows": ("show",),
+            "Loterias": ("loterias",),
+        },
+    },
+    "Outros": {
+        "keywords": (),
+        "subcategories": {},
+    },
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 }
 
 GENERIC_COST_TOKENS = {
@@ -124,16 +207,120 @@ GENERIC_COST_TOKENS = {
     "parc",
 }
 
+LOWERCASE_LABEL_WORDS = {"de", "da", "do", "das", "dos", "e"}
+
 
 def _normalize_text(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", text.lower().strip())
     return normalized.encode("ascii", "ignore").decode("ascii")
 
 
+# ---------------------------------------------------------------------------
+# User registration (issue #46)
+# ---------------------------------------------------------------------------
+
+_NAME_MIN_LEN = 2
+_NAME_MAX_LEN = 60
+_NON_NAME_TOKENS = {
+    "sim", "nao", "não", "ok", "pular", "depois", "oi", "ola", "olá",
+    "bom", "dia", "tarde", "noite", "tudo", "bem", "claro", "pode",
+    "s", "n", "nao sei", "não sei",
+}
+
+# Captures the name that follows a natural-language intro phrase.
+# Matches: "me chame de X", "me chamo X", "pode me chamar de X",
+#          "meu nome é X", "o meu nome é X", "sou o X", "sou a X",
+#          "gosto de ser chamado de X"
+# The captured group grabs 1 or 2 words and stops before commas/punctuation.
+_NAME_FROM_PHRASE_RE = re.compile(
+    r"^(?:"
+    r"(?:pode\s+)?me\s+cham(?:e|o|ar)(?:u)?\s*(?:de\s+)?|"
+    r"(?:o\s+)?meu\s+nome\s+[eé]\s*|"
+    r"sou\s+[oa]\s+|"
+    r"gosto\s+de\s+ser\s+chamado\s+de\s+"
+    r")([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'\-]*(?:\s+[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'\-]*)?)",
+    re.IGNORECASE,
+)
+
+
+def registration_prompt() -> str:
+    return (
+        "Antes de começar, qual é o seu nome?\n\n"
+        "Pode ser seu primeiro nome ou como você prefere ser chamado. "
+        "Uso essa informação apenas para te chamar pelo nome aqui dentro — "
+        "nenhum dado sensível é solicitado e seus dados são protegidos conforme a LGPD."
+    )
+
+
+def registration_retry_prompt() -> str:
+    return (
+        "Não consegui identificar um nome válido. "
+        "Pode me dizer como você gosta de ser chamado? "
+        "Pode ser seu primeiro nome, como João ou Maria."
+    )
+
+
+def parse_user_name(text: str) -> str | None:
+    stripped = text.strip()
+    if not stripped or len(stripped) > _NAME_MAX_LEN:
+        return None
+
+    normalized = _normalize_text(stripped)
+
+    # Reject obvious non-names
+    if normalized in _NON_NAME_TOKENS:
+        return None
+
+    # Try to extract name from an intro phrase ("me chame de X", "meu nome é X", etc.)
+    match = _NAME_FROM_PHRASE_RE.match(stripped)
+    if match:
+        name = match.group(1).strip()
+    else:
+        # No intro phrase — treat the raw text as the name after stripping trailing filler
+        candidate = re.sub(r"\s*[,!?;].*$", "", stripped).strip()
+        candidate = re.sub(
+            r"\s+(?:por\s+favor|obrigado|obrigada|valeu|tudo\s+bem|ok)\s*$",
+            "",
+            candidate,
+            flags=re.IGNORECASE,
+        ).strip()
+        # Reject if it still contains non-name characters (sentence punctuation, digits, etc.)
+        if not re.fullmatch(r"[A-Za-zÀ-ÿ'\-]+(?:\s+[A-Za-zÀ-ÿ'\-]+)*", candidate):
+            return None
+        name = candidate
+
+    if not re.search(r"[A-Za-zÀ-ÿ]", name):
+        return None
+    if len(name) < _NAME_MIN_LEN:
+        return None
+
+    # Capitalize each word of the extracted name
+    return " ".join(w.capitalize() for w in name.split())
+
+
+def save_user_name(user_id: int, nome: str) -> None:
+    with get_cursor() as (conn, cursor):
+        cursor.execute(
+            "UPDATE usuarios SET nome = %s WHERE id = %s",
+            (nome, user_id),
+        )
+        conn.commit()
+
+
+def get_user_name(user_id: int) -> str | None:
+    with get_cursor() as (_, cursor):
+        cursor.execute("SELECT nome FROM usuarios WHERE id = %s", (user_id,))
+        row = cursor.fetchone()
+    return str(row[0]) if row and row[0] else None
+
+
+# ---------------------------------------------------------------------------
+
+
 def account_snapshot_prompt() -> str:
     return (
-        "Para eu te orientar melhor desde o comeco, queria entender como esta sua vida financeira hoje.\n\n"
-        "Voce pode me dizer seu saldo atual ou me enviar o extrato de hoje.\n\n"
+        "Para eu te orientar melhor desde o começo, queria entender como está sua vida financeira hoje.\n\n"
+        "Você pode me dizer seu saldo atual ou me enviar o extrato de hoje.\n\n"
         'Se preferir, pode responder "PULAR" e seguimos mesmo assim.'
     )
 
@@ -219,7 +406,7 @@ def parse_balance_message(text: str) -> float | None:
 
 def card_count_prompt() -> str:
     return (
-        "Agora me conta uma coisa importante: quantos cartoes voce quer acompanhar comigo?\n\n"
+        "Agora me conta uma coisa importante: quantos cartões você quer acompanhar comigo?\n\n"
         "Pode me responder algo como 1, 2 ou 3.\n\n"
         'Se preferir deixar isso para depois, pode responder "PULAR".'
     )
@@ -227,26 +414,34 @@ def card_count_prompt() -> str:
 
 def cost_review_prompt(fixed_costs: list[dict[str, float | str]], variable_costs: list[dict[str, float | str]]) -> str:
     lines = [
-        "Pelo que apareceu no seu extrato, eu ja consegui montar uma primeira leitura dos seus custos mensais.",
+        "Pelo que apareceu no seu extrato, eu já consegui montar uma primeira leitura dos seus custos mensais.",
     ]
 
     if fixed_costs:
         lines.extend(["", "Custos que parecem mais fixos:"])
         for item in fixed_costs[:4]:
-            categoria = str(item.get("categoria") or "sem categoria")
-            lines.append(f"- {item['descricao']}: {format_brl(float(item['valor']))} | categoria sugerida: {categoria}")
+            categoria = str(item.get("categoria") or "Outros")
+            subcategoria = str(item.get("subcategoria") or "Sem subcategoria")
+            lines.append(
+                f"- {item['descricao']}: {format_brl(float(item['valor']))} | "
+                f"Categoria sugerida: {categoria} | Subcategoria sugerida: {subcategoria}"
+            )
 
     if variable_costs:
-        lines.extend(["", "Custos que parecem mais variaveis:"])
+        lines.extend(["", "Custos que parecem mais variáveis:"])
         for item in variable_costs[:4]:
-            categoria = str(item.get("categoria") or "sem categoria")
-            lines.append(f"- {item['descricao']}: {format_brl(float(item['valor']))} | categoria sugerida: {categoria}")
+            categoria = str(item.get("categoria") or "Outros")
+            subcategoria = str(item.get("subcategoria") or "Sem subcategoria")
+            lines.append(
+                f"- {item['descricao']}: {format_brl(float(item['valor']))} | "
+                f"Categoria sugerida: {categoria} | Subcategoria sugerida: {subcategoria}"
+            )
 
     lines.extend(
         [
             "",
             'Se fizer sentido, me responda "SIM" e eu considero essa base daqui para frente.',
-            'Se quiser ajustar algo, pode me dizer por exemplo: "Seguro e fixo" ou "Mercado entra em alimentacao".',
+            'Se quiser ajustar algo, pode me dizer, por exemplo: "Seguro é fixo e fica em Saúde, subcategoria Seguro".',
             'Se preferir revisar depois, pode responder "PULAR" e seguimos.',
         ]
     )
@@ -255,29 +450,33 @@ def cost_review_prompt(fixed_costs: list[dict[str, float | str]], variable_costs
 
 def cost_review_adjustment_prompt() -> str:
     return (
-        "Posso ajustar isso com voce por aqui.\n\n"
-        'Me diga no formato que for mais natural, por exemplo: "Seguro e fixo" ou "Mercado entra em alimentacao".'
+        "Posso ajustar isso com você por aqui.\n\n"
+<<<<<<< HEAD
+        'Me diga no formato que for mais natural, por exemplo: "Seguro é fixo" ou "Mercado entra em alimentação".'
+=======
+        'Me diga no formato que for mais natural, por exemplo: "Seguro é fixo e fica em Saúde, subcategoria Seguro".'
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
     )
 
 
 def card_names_prompt(total: int) -> str:
     if total <= 1:
         return (
-            "Perfeito. Como voce quer chamar esse cartao por aqui?\n\n"
-            "Pode ser o nome do banco ou um apelido que faca sentido para voce."
+            "Perfeito. Como você quer chamar esse cartão por aqui?\n\n"
+            "Pode ser o nome do banco ou um apelido que faça sentido para você."
         )
 
     return (
-        f"Entao vamos cadastrar esses {total} cartoes.\n\n"
-        "Me diga como voce quer chamar cada um deles, de preferencia na ordem, separado por virgula.\n"
-        "Por exemplo: Nubank, Itau, Cartao da Casa"
+        f"Então vamos cadastrar esses {total} cartões.\n\n"
+        "Me diga como você quer chamar cada um deles, de preferência na ordem, separado por vírgula.\n"
+        "Por exemplo: Nubank, Itaú, Cartão da Casa"
     )
 
 
 def card_details_prompt(card_name: str) -> str:
     return (
         f"Agora me ajuda com mais um detalhe do {card_name}.\n\n"
-        "Qual e o melhor dia de compra e qual e o limite desse cartao?\n"
+        "Qual é o melhor dia de compra e qual é o limite desse cartão?\n"
         "Por exemplo: melhor dia 20 e limite 5000\n\n"
         'Se preferir, pode responder "PULAR".'
     )
@@ -688,11 +887,59 @@ def _classify_cost_type(description: str) -> str | None:
     return None
 
 
+def _humanize_label(text: str) -> str:
+    words = [word for word in re.split(r"\s+", text.strip()) if word]
+    if not words:
+        return text.strip()
+    formatted: list[str] = []
+    for index, word in enumerate(words):
+        lower_word = word.lower()
+        if index > 0 and lower_word in LOWERCASE_LABEL_WORDS:
+            formatted.append(lower_word)
+        else:
+            formatted.append(lower_word[:1].upper() + lower_word[1:])
+    return " ".join(formatted)
+
+
+def _canonicalize_category_label(text: str) -> str:
+    candidate = _humanize_label(text)
+    normalized_candidate = _normalize_text(candidate)
+    for category in COST_TAXONOMY:
+        if _normalize_text(category) == normalized_candidate:
+            return category
+    return candidate
+
+
+def _canonicalize_subcategory_label(category: str | None, text: str) -> str:
+    candidate = _humanize_label(text)
+    if not category:
+        return candidate
+    config = COST_TAXONOMY.get(category) or {}
+    for subcategory in config.get("subcategories", {}):
+        if _normalize_text(subcategory) == _normalize_text(candidate):
+            return subcategory
+    return candidate
+
+
 def _classify_cost_category(description: str) -> str | None:
     normalized = _normalize_text(description)
-    for category, keywords in COST_CATEGORY_KEYWORDS.items():
+    for category, config in COST_TAXONOMY.items():
+        keywords = config.get("keywords", ())
         if any(keyword in normalized for keyword in keywords):
             return category
+    return None
+
+
+def _classify_cost_subcategory(description: str, category: str | None) -> str | None:
+    if not category:
+        return None
+
+    normalized = _normalize_text(description)
+    config = COST_TAXONOMY.get(category) or {}
+    subcategories = config.get("subcategories", {})
+    for subcategory, keywords in subcategories.items():
+        if any(keyword in normalized for keyword in keywords):
+            return subcategory
     return None
 
 
@@ -700,6 +947,33 @@ def _cost_reference_tokens(description: str) -> list[str]:
     normalized = _normalize_text(description)
     tokens = [token for token in re.split(r"\W+", normalized) if len(token) > 2]
     return [token for token in tokens if token not in GENERIC_COST_TOKENS]
+
+
+def _extract_marked_label(text: str, marker: str, stop_markers: tuple[str, ...]) -> str | None:
+    pattern = rf"{marker}\s+(.+?)(?=(?:{'|'.join(stop_markers)})|$)"
+    match = re.search(pattern, text, flags=re.IGNORECASE)
+    if not match:
+        return None
+    raw_value = match.group(1).strip(" .,:;")
+    return raw_value if raw_value else None
+
+
+def _find_best_cost_match(clause: str, all_costs: list[dict[str, float | str]]) -> dict[str, float | str] | None:
+    normalized_clause = _normalize_text(clause)
+    best_cost = None
+    best_score = 0
+    for cost in all_costs:
+        description = str(cost.get("descricao") or "")
+        normalized_description = _normalize_text(description)
+        tokens = _cost_reference_tokens(description)
+        score = 0
+        if normalized_description and normalized_description in normalized_clause:
+            score += 10
+        score += sum(1 for token in tokens if token in normalized_clause)
+        if score > best_score:
+            best_score = score
+            best_cost = cost
+    return best_cost if best_score >= 2 else None
 
 
 def infer_cost_candidates(user_id: int) -> tuple[list[dict[str, float | str]], list[dict[str, float | str]]]:
@@ -732,11 +1006,17 @@ def infer_cost_candidates(user_id: int) -> tuple[list[dict[str, float | str]], l
             continue
         seen_keys.add(key)
 
+        category = _classify_cost_category(description) or "Outros"
         payload = {
             "descricao": description,
             "valor": amount,
             "tipo_custo": cost_type,
-            "categoria": _classify_cost_category(description) or "outros",
+<<<<<<< HEAD
+            "categoria": _classify_cost_category(description) or "Outros",
+=======
+            "categoria": category,
+            "subcategoria": _classify_cost_subcategory(description, category) or "Sem subcategoria",
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
         }
         if cost_type == "fixo":
             fixed_costs.append(payload)
@@ -749,6 +1029,21 @@ def infer_cost_candidates(user_id: int) -> tuple[list[dict[str, float | str]], l
 def has_cost_review_candidates(user_id: int) -> bool:
     fixed_costs, variable_costs = infer_cost_candidates(user_id)
     return bool(fixed_costs or variable_costs)
+
+
+def is_statement_already_reviewed(user_id: int) -> bool:
+    """Return True if the user already confirmed their extrato in STATEMENT_REVIEW_PENDING."""
+    with get_cursor() as (_, cursor):
+        cursor.execute(
+            """
+            SELECT 1 FROM documentos_financeiros
+            WHERE user_id = %s AND tipo_documento = 'extrato'
+              AND revisado = TRUE
+            LIMIT 1
+            """,
+            (user_id,),
+        )
+        return cursor.fetchone() is not None
 
 
 def is_cost_review_completed(user_id: int) -> bool:
@@ -768,28 +1063,41 @@ def save_cost_candidates(
     confirmed: bool,
     fixed_costs: list[dict[str, float | str]] | None = None,
     variable_costs: list[dict[str, float | str]] | None = None,
+    origem: str = "extrato",
 ) -> None:
     if fixed_costs is None or variable_costs is None:
         fixed_costs, variable_costs = infer_cost_candidates(user_id)
     with get_cursor() as (conn, cursor):
         if _table_exists(cursor, "custos_mensais"):
-            cursor.execute("DELETE FROM custos_mensais WHERE user_id = %s AND origem = 'extrato'", (user_id,))
+            cursor.execute("DELETE FROM custos_mensais WHERE user_id = %s AND origem = %s", (user_id, origem))
             if confirmed:
                 for item in fixed_costs:
                     cursor.execute(
                         """
-                        INSERT INTO custos_mensais (user_id, descricao, categoria, valor_medio, tipo_custo, confirmado, origem)
-                        VALUES (%s, %s, %s, %s, 'fixo', TRUE, 'extrato')
+                        INSERT INTO custos_mensais (user_id, descricao, categoria, subcategoria, valor_medio, tipo_custo, confirmado, origem)
+<<<<<<< HEAD
+                        VALUES (%s, %s, %s, %s, %s, 'fixo', TRUE, %s)
                         """,
-                        (user_id, item["descricao"], item.get("categoria"), item["valor"]),
+                        (user_id, item["descricao"], item.get("categoria"), item.get("subcategoria"), item["valor"], origem),
+=======
+                        VALUES (%s, %s, %s, %s, %s, 'fixo', TRUE, 'extrato')
+                        """,
+                        (user_id, item["descricao"], item.get("categoria"), item.get("subcategoria"), item["valor"]),
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
                     )
                 for item in variable_costs:
                     cursor.execute(
                         """
-                        INSERT INTO custos_mensais (user_id, descricao, categoria, valor_medio, tipo_custo, confirmado, origem)
-                        VALUES (%s, %s, %s, %s, 'variavel', TRUE, 'extrato')
+                        INSERT INTO custos_mensais (user_id, descricao, categoria, subcategoria, valor_medio, tipo_custo, confirmado, origem)
+<<<<<<< HEAD
+                        VALUES (%s, %s, %s, %s, %s, 'variavel', TRUE, %s)
                         """,
-                        (user_id, item["descricao"], item.get("categoria"), item["valor"]),
+                        (user_id, item["descricao"], item.get("categoria"), item.get("subcategoria"), item["valor"], origem),
+=======
+                        VALUES (%s, %s, %s, %s, %s, 'variavel', TRUE, 'extrato')
+                        """,
+                        (user_id, item["descricao"], item.get("categoria"), item.get("subcategoria"), item["valor"]),
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
                     )
 
         if _column_exists(cursor, "configuracoes_usuario", "custos_onboarding_concluido"):
@@ -810,7 +1118,8 @@ def parse_cost_review_adjustments(
     fixed_costs: list[dict[str, float | str]],
     variable_costs: list[dict[str, float | str]],
 ) -> tuple[list[dict[str, float | str]], list[dict[str, float | str]]] | None:
-    normalized = _normalize_text(text)
+    raw_text = text.strip()
+    normalized = _normalize_text(raw_text)
     if not normalized:
         return None
 
@@ -818,32 +1127,60 @@ def parse_cost_review_adjustments(
     if not all_costs:
         return None
 
-    clauses = [part.strip() for part in re.split(r"[.;\n]+", normalized) if part.strip()]
+    clauses = [part.strip() for part in re.split(r"\n\s*\n|[;]+", raw_text) if part.strip()]
     changed = False
-    for cost in all_costs:
-        tokens = _cost_reference_tokens(str(cost.get("descricao") or ""))
-        if not tokens:
+    for clause in clauses:
+        cost = _find_best_cost_match(clause, all_costs)
+        if not cost:
             continue
 
-        for clause in clauses:
-            if not any(token in clause for token in tokens):
-                continue
+        normalized_clause = _normalize_text(clause)
+        local_change = False
 
-            if "fix" in clause:
-                cost["tipo_custo"] = "fixo"
-                changed = True
-            elif "vari" in clause:
-                cost["tipo_custo"] = "variavel"
-                changed = True
+        if "fix" in normalized_clause:
+            cost["tipo_custo"] = "fixo"
+            local_change = True
+        elif "vari" in normalized_clause:
+            cost["tipo_custo"] = "variavel"
+            local_change = True
 
-            for category, keywords in COST_CATEGORY_KEYWORDS.items():
-                if category in clause or any(keyword in clause for keyword in keywords):
-                    cost["categoria"] = category
-                    changed = True
-                    break
+        explicit_category = _extract_marked_label(
+            clause,
+            "categoria",
+            ("subcategoria", "é um custo", "e um custo", "fica em", "deve estar"),
+        )
+        if explicit_category:
+            cost["categoria"] = _canonicalize_category_label(explicit_category)
+            local_change = True
+        else:
+            inferred_category = _classify_cost_category(clause)
+            if inferred_category:
+                cost["categoria"] = inferred_category
+                local_change = True
 
-            if changed:
-                break
+        explicit_subcategory = _extract_marked_label(
+            clause,
+            "subcategoria",
+            ("é um custo", "e um custo",),
+        )
+        if explicit_subcategory:
+            cost["subcategoria"] = _canonicalize_subcategory_label(
+                str(cost.get("categoria") or ""),
+                explicit_subcategory,
+            )
+            local_change = True
+        elif cost.get("categoria"):
+            inferred_subcategory = _classify_cost_subcategory(clause, str(cost["categoria"]))
+            if inferred_subcategory:
+                cost["subcategoria"] = inferred_subcategory
+                local_change = True
+
+        if local_change:
+            if not cost.get("categoria"):
+                cost["categoria"] = "Outros"
+            if not cost.get("subcategoria"):
+                cost["subcategoria"] = "Sem subcategoria"
+            changed = True
 
     if not changed:
         return None
@@ -1132,13 +1469,13 @@ def parse_card_names_llm_first(text: str, expected_count: int) -> list[str]:
 
 def build_card_setup_confirmation(names: list[str]) -> str:
     if not names:
-        return "Tudo bem. A gente pode cadastrar seus cartoes depois."
+        return "Tudo bem. A gente pode cadastrar seus cartões depois."
 
     if len(names) == 1:
-        return f"Perfeito. Vou acompanhar esse cartao por aqui como {names[0]}."
+        return f"Perfeito. Vou acompanhar esse cartão por aqui como {names[0]}."
 
     listed_names = ", ".join(names[:-1]) + f" e {names[-1]}"
-    return f"Perfeito. Vou acompanhar esses cartoes por aqui como {listed_names}."
+    return f"Perfeito. Vou acompanhar esses cartões por aqui como {listed_names}."
 
 
 def get_onboarding_state(user_id: int) -> str:
@@ -1180,6 +1517,56 @@ def set_onboarding_state(user_id: int, state: str) -> None:
         conn.commit()
 
 
+def account_snapshot_retry_prompt() -> str:
+    return (
+        "Não consegui identificar um saldo ou extrato nessa mensagem.\n\n"
+        "Pode me dizer o valor atual da sua conta (ex: R$3.200) ou enviar uma foto do extrato. "
+        'Se preferir pular essa etapa, responda "PULAR".'
+    )
+
+
+def budget_setup_retry_prompt() -> str:
+    return (
+        "Não consegui identificar os limites nessa mensagem.\n\n"
+        "Tente no formato: Mercado 1200, farmacia 290, lazer 800. "
+        'Ou responda "PULAR" se preferir definir isso depois.'
+    )
+
+
+def cost_review_retry_prompt() -> str:
+    return (
+        'Pode me responder "SIM" para confirmar essa leitura, "NÃO" para ajustar algum item, '
+        'ou me dizer algo como "Seguro é fixo" ou "Mercado entra em alimentação". '
+        'Se preferir, responda "PULAR".'
+    )
+
+
+def card_count_retry_prompt() -> str:
+    return (
+        "Não entendi a quantidade. Pode me dizer um número, como 1, 2 ou 3? "
+        'Se não quiser acompanhar cartões agora, responda "PULAR".'
+    )
+
+
+def card_names_retry_prompt(expected_count: int) -> str:
+    if expected_count == 1:
+        return (
+            "Não consegui identificar o nome do cartão. "
+            "Pode me dizer só o nome, como Nubank ou Itaú?"
+        )
+    return (
+        f"Não consegui identificar os {expected_count} nomes. "
+        "Pode me mandar separados por vírgula? Ex: Nubank, Itaú, Bradesco."
+    )
+
+
+def card_invoice_retry_prompt(card_name: str) -> str:
+    return (
+        f"Ainda aguardo a fatura do {card_name}. "
+        'Pode enviar como imagem ou PDF. Se preferir pular, responda "PULAR".'
+    )
+
+
 def save_current_balance(user_id: int, balance: float) -> None:
     with get_cursor() as (conn, cursor):
         cursor.execute(
@@ -1198,3 +1585,142 @@ def save_current_balance(user_id: int, balance: float) -> None:
             (user_id, balance),
         )
         conn.commit()
+
+
+<<<<<<< HEAD
+def _latest_invoice_analysis(user_id: int) -> dict | None:
+    with get_cursor() as (_, cursor):
+        if not _table_exists(cursor, "documentos_financeiros"):
+            return None
+        cursor.execute(
+            """
+            SELECT extracted_json
+            FROM documentos_financeiros
+            WHERE user_id = %s
+              AND tipo_documento = 'fatura_cartao'
+              AND extracted_json IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        )
+        row = cursor.fetchone()
+    if not row or not row[0]:
+        return None
+    try:
+        parsed = json.loads(row[0])
+    except (TypeError, json.JSONDecodeError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def infer_invoice_cost_candidates(user_id: int) -> tuple[list[dict[str, float | str]], list[dict[str, float | str]]]:
+    analysis = _latest_invoice_analysis(user_id)
+    if not analysis:
+        return [], []
+
+    debit_entries = analysis.get("debit_entries")
+    if not isinstance(debit_entries, list):
+        return [], []
+
+    fixed_costs: list[dict[str, float | str]] = []
+    variable_costs: list[dict[str, float | str]] = []
+    seen_keys: set[str] = set()
+
+    for entry in debit_entries:
+        if not isinstance(entry, dict):
+            continue
+        description = str(entry.get("description") or "").strip()
+        amount = _normalize_amount(entry.get("amount"))
+        if not description or amount is None:
+            continue
+
+        cost_type = _classify_cost_type(description)
+        if not cost_type:
+            continue
+
+        key = _normalize_text(description)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+
+        payload: dict[str, float | str] = {
+            "descricao": description,
+            "valor": amount,
+            "tipo_custo": cost_type,
+            "categoria": _classify_cost_category(description) or "Outros",
+        }
+        if cost_type == "fixo":
+            fixed_costs.append(payload)
+        else:
+            variable_costs.append(payload)
+
+    return fixed_costs[:4], variable_costs[:4]
+=======
+def cost_review_prompt(fixed_costs: list[dict[str, float | str]], variable_costs: list[dict[str, float | str]]) -> str:
+    lines = [
+        "Pelo que apareceu no seu extrato, eu já consegui montar uma primeira leitura dos seus custos mensais.",
+        "Quero te mostrar essa leitura para validar com você antes de seguir.",
+    ]
+
+    if fixed_costs:
+        lines.extend(["", "Custos que parecem mais fixos:"])
+        for item in fixed_costs[:4]:
+            categoria = str(item.get("categoria") or "Outros")
+            subcategoria = str(item.get("subcategoria") or "Sem subcategoria")
+            lines.append(
+                f"- {item['descricao']}: {format_brl(float(item['valor']))} | "
+                f"Categoria sugerida: {categoria} | Subcategoria sugerida: {subcategoria}"
+            )
+
+    if variable_costs:
+        lines.extend(["", "Custos que parecem mais variáveis:"])
+        for item in variable_costs[:4]:
+            categoria = str(item.get("categoria") or "Outros")
+            subcategoria = str(item.get("subcategoria") or "Sem subcategoria")
+            lines.append(
+                f"- {item['descricao']}: {format_brl(float(item['valor']))} | "
+                f"Categoria sugerida: {categoria} | Subcategoria sugerida: {subcategoria}"
+            )
+
+    lines.extend(
+        [
+            "",
+            'Se fizer sentido, me responda "SIM" e eu considero essa base daqui para frente.',
+            'Se quiser ajustar algo, você pode me dizer, por exemplo: "Seguro é fixo e fica em Saúde, subcategoria Seguro".',
+            'Se preferir revisar depois, pode responder "PULAR" e seguimos.',
+        ]
+    )
+    return "\n".join(lines)
+
+
+def cost_review_adjustment_prompt() -> str:
+    return (
+        "Posso ajustar essa leitura com você por aqui.\n\n"
+        'Me diga a transação, o tipo de custo, a categoria e, se fizer sentido, a subcategoria. '
+        'Por exemplo: "Seguro é fixo e fica em Saúde, subcategoria Seguro".'
+    )
+
+
+def build_cost_review_confirmation(
+    fixed_costs: list[dict[str, float | str]],
+    variable_costs: list[dict[str, float | str]],
+) -> str:
+    lines = ["Perfeito. Ajustei essa leitura inicial dos seus custos assim:"]
+
+    if fixed_costs:
+        lines.extend(["", "Fixos:"])
+        for item in fixed_costs[:4]:
+            categoria = str(item.get("categoria") or "Outros")
+            subcategoria = str(item.get("subcategoria") or "Sem subcategoria")
+            lines.append(f"- {item['descricao']} | {categoria} | {subcategoria}")
+
+    if variable_costs:
+        lines.extend(["", "Variáveis:"])
+        for item in variable_costs[:4]:
+            categoria = str(item.get("categoria") or "Outros")
+            subcategoria = str(item.get("subcategoria") or "Sem subcategoria")
+            lines.append(f"- {item['descricao']} | {categoria} | {subcategoria}")
+
+    return "\n".join(lines)
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
