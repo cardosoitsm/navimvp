@@ -4,7 +4,7 @@
 > Every test must be traceable to at least one requirement.
 > A requirement with no test is an unverified assumption -- a risk.
 
-Last updated: 2026-05-07 | Maintained by: QA Agent
+Last updated: 2026-05-18 | Maintained by: QA Agent
 
 ---
 
@@ -30,6 +30,7 @@ Last updated: 2026-05-07 | Maintained by: QA Agent
 | ONB-006 | All 9 onboarding states are reachable via natural language | `TestScenarioAFull::test_full_onboarding_with_two_cards` | covered |
 | ONB-007 | Card registration sub-flow (names + details + invoice) works correctly | `TestScenarioAFull::test_full_onboarding_with_two_cards` | covered |
 | ONB-008 | User can register 0 cards (skip card setup entirely) | `test_webhook.py::test_onboarding_card_count_zero` | covered |
+| ONB-009 | When document/invoice analysis fails (OpenAI error, download error, unsupported PDF), user receives a fallback WhatsApp message and onboarding state is advanced — user must not be left stuck in CARD_INVOICE_PENDING | `TestNotifyAnalysisFailure` (5 tests), `TestProcessStoredDocumentFailurePath` (4 tests) in `tests/test_invoice_analysis_response.py` | covered |
 
 ---
 
