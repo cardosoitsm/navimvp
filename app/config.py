@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     secret_key: str = Field(default="change-me", alias="SECRET_KEY")
     algorithm: str = Field(default="HS256", alias="ALGORITHM")
 
+    # Admin key must be different from SECRET_KEY (see NAVI-SEC-002)
+    admin_key: str = Field(default="", alias="ADMIN_SECRET_KEY")
+
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
 
     database_host: str = Field(default="db", alias="DATABASE_HOST")

@@ -1,7 +1,27 @@
 version: "3.8"
 
+<<<<<<< HEAD
 services:
 
+=======
+# ─────────────────────────────────────────────────────────────────────────────
+# Navi — Full Harness Test Environment
+#
+# Brings up the complete test infrastructure described in HARNESS.md:
+#   - PostgreSQL 15 (ephemeral, navimvp_test DB)
+#   - OpenAI stub server (tests/stubs/openai_stub.py on port 11435)
+#   - Test runner (pytest against the SUT pointed at the stub)
+#
+# Usage:
+#   docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
+#
+# Exit code of `test-runner` container is the exit code of the entire suite.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ─── Test database ───────────────────────────────────────────────────────
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
   test-db:
     image: postgres:15
     environment:
@@ -14,10 +34,18 @@ services:
       timeout: 5s
       retries: 15
     tmpfs:
+<<<<<<< HEAD
+=======
+      # Use tmpfs so the test DB lives in memory — faster and guaranteed clean
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
       - /var/lib/postgresql/data
     networks:
       - test-net
 
+<<<<<<< HEAD
+=======
+  # ─── OpenAI stub server ──────────────────────────────────────────────────
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
   openai-stub:
     build:
       context: .
@@ -34,6 +62,10 @@ services:
     networks:
       - test-net
 
+<<<<<<< HEAD
+=======
+  # ─── Test runner ─────────────────────────────────────────────────────────
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
   test-runner:
     build:
       context: .
@@ -44,11 +76,16 @@ services:
       openai-stub:
         condition: service_healthy
     environment:
+<<<<<<< HEAD
+=======
+      # Database — points to the ephemeral test DB container
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
       DATABASE_HOST: test-db
       DATABASE_PORT: 5432
       DATABASE_NAME: navimvp_test
       DATABASE_USER: navimvp
       DATABASE_PASSWORD: navimvppw
+<<<<<<< HEAD
       SECRET_KEY: harness-test-secret-key
       ADMIN_SECRET_KEY: harness-admin-secret-key
       ALGORITHM: HS256
@@ -57,6 +94,24 @@ services:
       ACCOUNT_SID: test-account-sid
       AUTH_TOKEN: test-auth-token
       TWILIO_NUMBER: "whatsapp:+5511999999999"
+=======
+
+      # Auth — test-only secrets, never reused in production
+      SECRET_KEY: harness-test-secret-key
+      ADMIN_SECRET_KEY: harness-admin-secret-key
+      ALGORITHM: HS256
+
+      # OpenAI — points to the stub server (not real OpenAI)
+      OPENAI_API_KEY: sk-stub-key-harness
+      OPENAI_BASE_URL: http://openai-stub:11435/v1
+
+      # Twilio — test values (no real messages sent)
+      ACCOUNT_SID: test-account-sid
+      AUTH_TOKEN: test-auth-token
+      TWILIO_NUMBER: "whatsapp:+5511999999999"
+
+      # App
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
       APP_ENV: test
       APP_DEBUG: "false"
     command: >

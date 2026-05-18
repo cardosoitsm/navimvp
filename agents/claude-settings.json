@@ -1,0 +1,34 @@
+{
+  "_placement": "Copy this file to navimvp/.claude/settings.json",
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      }
+    }
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(docker:*)",
+      "Bash(docker-compose:*)",
+      "Bash(pytest:*)",
+      "Bash(pip install:*)",
+      "Bash(ruff:*)",
+      "Bash(az acr:*)",
+      "Bash(az vm run-command:*)",
+      "Bash(curl http://localhost:*)",
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push origin main:*)",
+      "Bash(az vm delete:*)",
+      "Bash(az group delete:*)"
+    ]
+  }
+}

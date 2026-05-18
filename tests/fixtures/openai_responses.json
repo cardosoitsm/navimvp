@@ -1,5 +1,10 @@
 {
+<<<<<<< HEAD
   "_comment": "Scripted OpenAI response fixtures for the Navi stub server",
+=======
+  "_comment": "Scripted OpenAI response fixtures for the Navi stub server (tests/stubs/openai_stub.py). Each key is a scenario name; the value is the string placed in choices[0].message.content. These mirror the categories and values used in the QA agent's E2E scenarios A–H.",
+
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
   "despesa_transporte_50": "[{\"tipo\": \"despesa\", \"categoria\": \"transporte\", \"valor\": 50.0}]",
   "despesa_alimentacao_35": "[{\"tipo\": \"despesa\", \"categoria\": \"alimentacao\", \"valor\": 35.0}]",
   "despesa_alimentacao_100": "[{\"tipo\": \"despesa\", \"categoria\": \"alimentacao\", \"valor\": 100.0}]",
@@ -14,9 +19,21 @@
   "despesa_lazer_75": "[{\"tipo\": \"despesa\", \"categoria\": \"lazer\", \"valor\": 75.0}]",
   "despesa_mercado_120": "[{\"tipo\": \"despesa\", \"categoria\": \"mercado\", \"valor\": 120.0}]",
   "despesa_outros_50": "[{\"tipo\": \"despesa\", \"categoria\": \"outros\", \"valor\": 50.0}]",
+<<<<<<< HEAD
   "receita_salario_3000": "[{\"tipo\": \"receita\", \"categoria\": \"salario\", \"valor\": 3000.0}]",
   "receita_salario_5000": "[{\"tipo\": \"receita\", \"categoria\": \"salario\", \"valor\": 5000.0}]",
   "multi_transporte_alimentacao": "[{\"tipo\": \"despesa\", \"categoria\": \"transporte\", \"valor\": 20.0}, {\"tipo\": \"despesa\", \"categoria\": \"alimentacao\", \"valor\": 35.0}]",
   "nao_reconhecido": "[]",
   "vazio": "[]"
 }
+=======
+
+  "receita_salario_3000": "[{\"tipo\": \"receita\", \"categoria\": \"salario\", \"valor\": 3000.0}]",
+  "receita_salario_5000": "[{\"tipo\": \"receita\", \"categoria\": \"salario\", \"valor\": 5000.0}]",
+
+  "multi_transporte_alimentacao": "[{\"tipo\": \"despesa\", \"categoria\": \"transporte\", \"valor\": 20.0}, {\"tipo\": \"despesa\", \"categoria\": \"alimentacao\", \"valor\": 35.0}]",
+
+  "nao_reconhecido": "[]",
+  "vazio": "[]"
+}
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)

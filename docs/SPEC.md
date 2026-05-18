@@ -15,6 +15,9 @@ O **Navi** é um assistente financeiro pessoal via **WhatsApp**. O usuário não
 - Receber e interpretar extratos bancários e faturas de cartão de crédito
 - Responder perguntas sobre saúde financeira, limites e histórico de gastos
 - Guiar o usuário por um onboarding conversacional completo antes de entrar no uso pleno
+- Atuar como um assistente financeiro apoiando o usuário manter a saúde financeira 
+- Se adaptar ao tom do usuário para gerar uma empatia
+- Implementar camadas de segurança para garantir o compliance LGPD
 
 ### Canais
 | Canal | Uso |
@@ -26,18 +29,18 @@ O **Navi** é um assistente financeiro pessoal via **WhatsApp**. O usuário não
 
 ## Stack Tecnológica
 
-| Camada | Tecnologia |
-|---|---|
-| Linguagem | Python 3.12 |
-| Web Framework | FastAPI + Uvicorn |
-| Banco de dados | PostgreSQL 15 |
-| Acesso ao banco | psycopg2-binary (sem ORM, SQL direto) |
-| IA / NLP | OpenAI API — `gpt-4.1-mini` |
-| Leitura de PDF | pypdf |
-| Mensageria WhatsApp | Twilio |
-| Autenticação | JWT (python-jose) + bcrypt (passlib) |
-| Configuração | pydantic-settings (.env) |
-| Deploy | Docker Compose |
+| Camada              | Tecnologia                            |
+| ------------------- | ------------------------------------- |
+| Linguagem           | Python 3.12                           |
+| Web Framework       | FastAPI + Uvicorn                     |
+| Banco de dados      | PostgreSQL 15                         |
+| Acesso ao banco     | psycopg2-binary (sem ORM, SQL direto) |
+| IA / NLP            | OpenAI API — `gpt-4.1-mini`           |
+| Leitura de PDF      | pypdf                                 |
+| Mensageria WhatsApp | Twilio                                |
+| Autenticação        | JWT (python-jose) + bcrypt (passlib)  |
+| Configuração        | pydantic-settings (.env)              |
+| Deploy              | Docker Compose                        |
 
 ---
 
@@ -45,6 +48,7 @@ O **Navi** é um assistente financeiro pessoal via **WhatsApp**. O usuário não
 
 ### Tabelas
 
+<<<<<<< HEAD
 | Tabela | Descrição |
 |---|---|
 | `usuarios` | Contas de usuário. WhatsApp users usam o número como `email` e senha gerada automaticamente. |
@@ -58,6 +62,21 @@ O **Navi** é um assistente financeiro pessoal via **WhatsApp**. O usuário não
 | `faturas_cartao` | Faturas extraídas de documentos: valor total, vencimento, pagamento mínimo, emissor, cartão vinculado. |
 | `cartoes_usuario` | Cartões cadastrados: nome, ordem, melhor dia de compra, limite de crédito, flag `ativo`. |
 | `custos_mensais` | Custos fixos e variáveis inferidos do extrato: descrição, categoria, valor médio, tipo (`fixo`/`variavel`), flag `confirmado`. |
+=======
+| Tabela                   | Descrição                                                                                                                                                                                                                                                                   |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `usuarios`               | Contas de usuário. WhatsApp users usam o número como `email` e senha gerada automaticamente.                                                                                                                                                                                |
+| `transacoes`             | Despesas e receitas registradas. Colunas: `tipo`, `categoria`, `valor`, `user_id`, `created_at`.                                                                                                                                                                            |
+| `confirmacoes_pendentes` | Transação aguardando confirmação explícita do usuário (uma por vez, por usuário).                                                                                                                                                                                           |
+| `configuracoes_usuario`  | Estado do onboarding e flags de progresso: `onboarding_state`, `pending_card_total`, `pending_card_index`, `orcamento_onboarding_concluido`, `documentos_onboarding_concluido`, `aguardando_documento`, `custos_onboarding_concluido`, `ultimo_topico`, `ultimo_cartao_id`. |
+| `orcamentos`             | Limites mensais por categoria. Chave primária composta `(user_id, categoria)`.                                                                                                                                                                                              |
+| `orcamento_alertas`      | Registro de alertas já disparados. Garante que cada nível (50%, 80%, 100%) é enviado uma única vez por mês por categoria.                                                                                                                                                   |
+| `documentos_financeiros` | Documentos recebidos (extrato, fatura, PDF genérico). Armazena URL da mídia, tipo, status de processamento e JSON extraído pela IA.                                                                                                                                         |
+| `perfil_financeiro`      | Snapshot financeiro do usuário: saldo estimado, renda identificada, despesas fixas estimadas, pressão de cartão.                                                                                                                                                            |
+| `faturas_cartao`         | Faturas extraídas de documentos: valor total, vencimento, pagamento mínimo, emissor, cartão vinculado.                                                                                                                                                                      |
+| `cartoes_usuario`        | Cartões cadastrados: nome, ordem, melhor dia de compra, limite de crédito, flag `ativo`.                                                                                                                                                                                    |
+| `custos_mensais`         | Custos fixos e variáveis inferidos do extrato: descrição, categoria, valor médio, tipo (`fixo`/`variavel`), flag `confirmado`.                                                                                                                                              |
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 
 ### Migrations
 Todas as DDLs são executadas via `SCHEMA_STATEMENTS` em `app/db.py` no startup da aplicação. Não há ferramenta de migration separada — os statements usam `CREATE TABLE IF NOT EXISTS` e `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` para serem idempotentes.

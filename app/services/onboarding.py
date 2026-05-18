@@ -100,6 +100,7 @@ VARIABLE_COST_KEYWORDS = (
     "loterias",
 )
 
+<<<<<<< HEAD
 COST_CATEGORY_KEYWORDS = {
     "Moradia": ("aluguel", "condominio", "condomínio", "agua", "água", "gas", "gás", "energia", "luz"),
     "Saude": ("farmacia", "farmácia", "seguro", "plano", "consulta", "medico", "médico"),
@@ -108,6 +109,85 @@ COST_CATEGORY_KEYWORDS = {
     "Comunicacao": ("telefone", "vivo", "claro", "tim", "internet"),
     "Financeiro": ("boleto", "juros", "iof", "tarifa", "financiamento", "parcela"),
     "Lazer": ("lazer", "cinema", "show", "streaming", "loterias"),
+=======
+COST_TAXONOMY = {
+    "Moradia": {
+        "keywords": ("aluguel", "condominio", "condomínio", "agua", "água", "gas", "gás", "energia", "luz"),
+        "subcategories": {
+            "Aluguel": ("aluguel",),
+            "Condomínio": ("condominio", "condomínio"),
+            "Energia": ("energia", "luz"),
+            "Água": ("agua", "água"),
+            "Gás": ("gas", "gás"),
+        },
+    },
+    "Saúde": {
+        "keywords": ("farmacia", "farmácia", "seguro", "plano", "consulta", "medico", "médico"),
+        "subcategories": {
+            "Farmácia": ("farmacia", "farmácia"),
+            "Plano de Saúde": ("plano",),
+            "Seguro": ("seguro",),
+            "Consulta": ("consulta", "medico", "médico"),
+        },
+    },
+    "Alimentação": {
+        "keywords": ("mercado", "supermercado", "ifood", "restaurante", "padaria", "cantina"),
+        "subcategories": {
+            "Mercado": ("mercado", "supermercado"),
+            "Delivery": ("ifood",),
+            "Restaurante": ("restaurante",),
+            "Padaria": ("padaria",),
+            "Cantina": ("cantina",),
+        },
+    },
+    "Transporte": {
+        "keywords": ("uber", "combustivel", "combustível", "posto", "99", "pedagio", "pedágio", "estacionamento"),
+        "subcategories": {
+            "Aplicativos": ("uber", "99"),
+            "Combustível": ("combustivel", "combustível", "posto"),
+            "Pedágio": ("pedagio", "pedágio"),
+            "Estacionamento": ("estacionamento",),
+        },
+    },
+    "Comunicação": {
+        "keywords": ("telefone", "vivo", "claro", "tim", "internet"),
+        "subcategories": {
+            "Telefonia": ("telefone", "vivo", "claro", "tim"),
+            "Internet": ("internet",),
+        },
+    },
+    "Educação": {
+        "keywords": ("escola", "faculdade", "curso", "editora", "sociaedu", "socieda", "revista", "livro", "globo"),
+        "subcategories": {
+            "Escola": ("escola", "sociaedu", "socieda"),
+            "Cursos": ("curso", "faculdade"),
+            "Revistas": ("editora", "revista", "globo"),
+            "Livros": ("livro",),
+        },
+    },
+    "Financeiro": {
+        "keywords": ("boleto", "juros", "iof", "tarifa", "financiamento", "parcela"),
+        "subcategories": {
+            "Boletos": ("boleto",),
+            "Juros": ("juros", "iof"),
+            "Financiamento": ("financiamento", "parcela"),
+            "Tarifas": ("tarifa",),
+        },
+    },
+    "Lazer": {
+        "keywords": ("lazer", "cinema", "show", "streaming", "loterias"),
+        "subcategories": {
+            "Streaming": ("streaming",),
+            "Cinema": ("cinema",),
+            "Shows": ("show",),
+            "Loterias": ("loterias",),
+        },
+    },
+    "Outros": {
+        "keywords": (),
+        "subcategories": {},
+    },
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 }
 
 GENERIC_COST_TOKENS = {
@@ -126,6 +206,8 @@ GENERIC_COST_TOKENS = {
     "periodo",
     "parc",
 }
+
+LOWERCASE_LABEL_WORDS = {"de", "da", "do", "das", "dos", "e"}
 
 
 def _normalize_text(text: str) -> str:
@@ -338,20 +420,28 @@ def cost_review_prompt(fixed_costs: list[dict[str, float | str]], variable_costs
     if fixed_costs:
         lines.extend(["", "Custos que parecem mais fixos:"])
         for item in fixed_costs[:4]:
-            categoria = str(item.get("categoria") or "sem categoria")
-            lines.append(f"- {item['descricao']}: {format_brl(float(item['valor']))} | categoria sugerida: {categoria}")
+            categoria = str(item.get("categoria") or "Outros")
+            subcategoria = str(item.get("subcategoria") or "Sem subcategoria")
+            lines.append(
+                f"- {item['descricao']}: {format_brl(float(item['valor']))} | "
+                f"Categoria sugerida: {categoria} | Subcategoria sugerida: {subcategoria}"
+            )
 
     if variable_costs:
         lines.extend(["", "Custos que parecem mais variáveis:"])
         for item in variable_costs[:4]:
-            categoria = str(item.get("categoria") or "sem categoria")
-            lines.append(f"- {item['descricao']}: {format_brl(float(item['valor']))} | categoria sugerida: {categoria}")
+            categoria = str(item.get("categoria") or "Outros")
+            subcategoria = str(item.get("subcategoria") or "Sem subcategoria")
+            lines.append(
+                f"- {item['descricao']}: {format_brl(float(item['valor']))} | "
+                f"Categoria sugerida: {categoria} | Subcategoria sugerida: {subcategoria}"
+            )
 
     lines.extend(
         [
             "",
             'Se fizer sentido, me responda "SIM" e eu considero essa base daqui para frente.',
-            'Se quiser ajustar algo, pode me dizer por exemplo: "Seguro e fixo" ou "Mercado entra em alimentacao".',
+            'Se quiser ajustar algo, pode me dizer, por exemplo: "Seguro é fixo e fica em Saúde, subcategoria Seguro".',
             'Se preferir revisar depois, pode responder "PULAR" e seguimos.',
         ]
     )
@@ -361,7 +451,11 @@ def cost_review_prompt(fixed_costs: list[dict[str, float | str]], variable_costs
 def cost_review_adjustment_prompt() -> str:
     return (
         "Posso ajustar isso com você por aqui.\n\n"
+<<<<<<< HEAD
         'Me diga no formato que for mais natural, por exemplo: "Seguro é fixo" ou "Mercado entra em alimentação".'
+=======
+        'Me diga no formato que for mais natural, por exemplo: "Seguro é fixo e fica em Saúde, subcategoria Seguro".'
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
     )
 
 
@@ -793,11 +887,59 @@ def _classify_cost_type(description: str) -> str | None:
     return None
 
 
+def _humanize_label(text: str) -> str:
+    words = [word for word in re.split(r"\s+", text.strip()) if word]
+    if not words:
+        return text.strip()
+    formatted: list[str] = []
+    for index, word in enumerate(words):
+        lower_word = word.lower()
+        if index > 0 and lower_word in LOWERCASE_LABEL_WORDS:
+            formatted.append(lower_word)
+        else:
+            formatted.append(lower_word[:1].upper() + lower_word[1:])
+    return " ".join(formatted)
+
+
+def _canonicalize_category_label(text: str) -> str:
+    candidate = _humanize_label(text)
+    normalized_candidate = _normalize_text(candidate)
+    for category in COST_TAXONOMY:
+        if _normalize_text(category) == normalized_candidate:
+            return category
+    return candidate
+
+
+def _canonicalize_subcategory_label(category: str | None, text: str) -> str:
+    candidate = _humanize_label(text)
+    if not category:
+        return candidate
+    config = COST_TAXONOMY.get(category) or {}
+    for subcategory in config.get("subcategories", {}):
+        if _normalize_text(subcategory) == _normalize_text(candidate):
+            return subcategory
+    return candidate
+
+
 def _classify_cost_category(description: str) -> str | None:
     normalized = _normalize_text(description)
-    for category, keywords in COST_CATEGORY_KEYWORDS.items():
+    for category, config in COST_TAXONOMY.items():
+        keywords = config.get("keywords", ())
         if any(keyword in normalized for keyword in keywords):
             return category
+    return None
+
+
+def _classify_cost_subcategory(description: str, category: str | None) -> str | None:
+    if not category:
+        return None
+
+    normalized = _normalize_text(description)
+    config = COST_TAXONOMY.get(category) or {}
+    subcategories = config.get("subcategories", {})
+    for subcategory, keywords in subcategories.items():
+        if any(keyword in normalized for keyword in keywords):
+            return subcategory
     return None
 
 
@@ -805,6 +947,33 @@ def _cost_reference_tokens(description: str) -> list[str]:
     normalized = _normalize_text(description)
     tokens = [token for token in re.split(r"\W+", normalized) if len(token) > 2]
     return [token for token in tokens if token not in GENERIC_COST_TOKENS]
+
+
+def _extract_marked_label(text: str, marker: str, stop_markers: tuple[str, ...]) -> str | None:
+    pattern = rf"{marker}\s+(.+?)(?=(?:{'|'.join(stop_markers)})|$)"
+    match = re.search(pattern, text, flags=re.IGNORECASE)
+    if not match:
+        return None
+    raw_value = match.group(1).strip(" .,:;")
+    return raw_value if raw_value else None
+
+
+def _find_best_cost_match(clause: str, all_costs: list[dict[str, float | str]]) -> dict[str, float | str] | None:
+    normalized_clause = _normalize_text(clause)
+    best_cost = None
+    best_score = 0
+    for cost in all_costs:
+        description = str(cost.get("descricao") or "")
+        normalized_description = _normalize_text(description)
+        tokens = _cost_reference_tokens(description)
+        score = 0
+        if normalized_description and normalized_description in normalized_clause:
+            score += 10
+        score += sum(1 for token in tokens if token in normalized_clause)
+        if score > best_score:
+            best_score = score
+            best_cost = cost
+    return best_cost if best_score >= 2 else None
 
 
 def infer_cost_candidates(user_id: int) -> tuple[list[dict[str, float | str]], list[dict[str, float | str]]]:
@@ -837,11 +1006,17 @@ def infer_cost_candidates(user_id: int) -> tuple[list[dict[str, float | str]], l
             continue
         seen_keys.add(key)
 
+        category = _classify_cost_category(description) or "Outros"
         payload = {
             "descricao": description,
             "valor": amount,
             "tipo_custo": cost_type,
+<<<<<<< HEAD
             "categoria": _classify_cost_category(description) or "Outros",
+=======
+            "categoria": category,
+            "subcategoria": _classify_cost_subcategory(description, category) or "Sem subcategoria",
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
         }
         if cost_type == "fixo":
             fixed_costs.append(payload)
@@ -900,17 +1075,29 @@ def save_cost_candidates(
                     cursor.execute(
                         """
                         INSERT INTO custos_mensais (user_id, descricao, categoria, subcategoria, valor_medio, tipo_custo, confirmado, origem)
+<<<<<<< HEAD
                         VALUES (%s, %s, %s, %s, %s, 'fixo', TRUE, %s)
                         """,
                         (user_id, item["descricao"], item.get("categoria"), item.get("subcategoria"), item["valor"], origem),
+=======
+                        VALUES (%s, %s, %s, %s, %s, 'fixo', TRUE, 'extrato')
+                        """,
+                        (user_id, item["descricao"], item.get("categoria"), item.get("subcategoria"), item["valor"]),
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
                     )
                 for item in variable_costs:
                     cursor.execute(
                         """
                         INSERT INTO custos_mensais (user_id, descricao, categoria, subcategoria, valor_medio, tipo_custo, confirmado, origem)
+<<<<<<< HEAD
                         VALUES (%s, %s, %s, %s, %s, 'variavel', TRUE, %s)
                         """,
                         (user_id, item["descricao"], item.get("categoria"), item.get("subcategoria"), item["valor"], origem),
+=======
+                        VALUES (%s, %s, %s, %s, %s, 'variavel', TRUE, 'extrato')
+                        """,
+                        (user_id, item["descricao"], item.get("categoria"), item.get("subcategoria"), item["valor"]),
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
                     )
 
         if _column_exists(cursor, "configuracoes_usuario", "custos_onboarding_concluido"):
@@ -931,7 +1118,8 @@ def parse_cost_review_adjustments(
     fixed_costs: list[dict[str, float | str]],
     variable_costs: list[dict[str, float | str]],
 ) -> tuple[list[dict[str, float | str]], list[dict[str, float | str]]] | None:
-    normalized = _normalize_text(text)
+    raw_text = text.strip()
+    normalized = _normalize_text(raw_text)
     if not normalized:
         return None
 
@@ -939,32 +1127,60 @@ def parse_cost_review_adjustments(
     if not all_costs:
         return None
 
-    clauses = [part.strip() for part in re.split(r"[.;\n]+", normalized) if part.strip()]
+    clauses = [part.strip() for part in re.split(r"\n\s*\n|[;]+", raw_text) if part.strip()]
     changed = False
-    for cost in all_costs:
-        tokens = _cost_reference_tokens(str(cost.get("descricao") or ""))
-        if not tokens:
+    for clause in clauses:
+        cost = _find_best_cost_match(clause, all_costs)
+        if not cost:
             continue
 
-        for clause in clauses:
-            if not any(token in clause for token in tokens):
-                continue
+        normalized_clause = _normalize_text(clause)
+        local_change = False
 
-            if "fix" in clause:
-                cost["tipo_custo"] = "fixo"
-                changed = True
-            elif "vari" in clause:
-                cost["tipo_custo"] = "variavel"
-                changed = True
+        if "fix" in normalized_clause:
+            cost["tipo_custo"] = "fixo"
+            local_change = True
+        elif "vari" in normalized_clause:
+            cost["tipo_custo"] = "variavel"
+            local_change = True
 
-            for category, keywords in COST_CATEGORY_KEYWORDS.items():
-                if category in clause or any(keyword in clause for keyword in keywords):
-                    cost["categoria"] = category
-                    changed = True
-                    break
+        explicit_category = _extract_marked_label(
+            clause,
+            "categoria",
+            ("subcategoria", "é um custo", "e um custo", "fica em", "deve estar"),
+        )
+        if explicit_category:
+            cost["categoria"] = _canonicalize_category_label(explicit_category)
+            local_change = True
+        else:
+            inferred_category = _classify_cost_category(clause)
+            if inferred_category:
+                cost["categoria"] = inferred_category
+                local_change = True
 
-            if changed:
-                break
+        explicit_subcategory = _extract_marked_label(
+            clause,
+            "subcategoria",
+            ("é um custo", "e um custo",),
+        )
+        if explicit_subcategory:
+            cost["subcategoria"] = _canonicalize_subcategory_label(
+                str(cost.get("categoria") or ""),
+                explicit_subcategory,
+            )
+            local_change = True
+        elif cost.get("categoria"):
+            inferred_subcategory = _classify_cost_subcategory(clause, str(cost["categoria"]))
+            if inferred_subcategory:
+                cost["subcategoria"] = inferred_subcategory
+                local_change = True
+
+        if local_change:
+            if not cost.get("categoria"):
+                cost["categoria"] = "Outros"
+            if not cost.get("subcategoria"):
+                cost["subcategoria"] = "Sem subcategoria"
+            changed = True
 
     if not changed:
         return None
@@ -1371,6 +1587,7 @@ def save_current_balance(user_id: int, balance: float) -> None:
         conn.commit()
 
 
+<<<<<<< HEAD
 def _latest_invoice_analysis(user_id: int) -> dict | None:
     with get_cursor() as (_, cursor):
         if not _table_exists(cursor, "documentos_financeiros"):
@@ -1439,3 +1656,71 @@ def infer_invoice_cost_candidates(user_id: int) -> tuple[list[dict[str, float | 
             variable_costs.append(payload)
 
     return fixed_costs[:4], variable_costs[:4]
+=======
+def cost_review_prompt(fixed_costs: list[dict[str, float | str]], variable_costs: list[dict[str, float | str]]) -> str:
+    lines = [
+        "Pelo que apareceu no seu extrato, eu já consegui montar uma primeira leitura dos seus custos mensais.",
+        "Quero te mostrar essa leitura para validar com você antes de seguir.",
+    ]
+
+    if fixed_costs:
+        lines.extend(["", "Custos que parecem mais fixos:"])
+        for item in fixed_costs[:4]:
+            categoria = str(item.get("categoria") or "Outros")
+            subcategoria = str(item.get("subcategoria") or "Sem subcategoria")
+            lines.append(
+                f"- {item['descricao']}: {format_brl(float(item['valor']))} | "
+                f"Categoria sugerida: {categoria} | Subcategoria sugerida: {subcategoria}"
+            )
+
+    if variable_costs:
+        lines.extend(["", "Custos que parecem mais variáveis:"])
+        for item in variable_costs[:4]:
+            categoria = str(item.get("categoria") or "Outros")
+            subcategoria = str(item.get("subcategoria") or "Sem subcategoria")
+            lines.append(
+                f"- {item['descricao']}: {format_brl(float(item['valor']))} | "
+                f"Categoria sugerida: {categoria} | Subcategoria sugerida: {subcategoria}"
+            )
+
+    lines.extend(
+        [
+            "",
+            'Se fizer sentido, me responda "SIM" e eu considero essa base daqui para frente.',
+            'Se quiser ajustar algo, você pode me dizer, por exemplo: "Seguro é fixo e fica em Saúde, subcategoria Seguro".',
+            'Se preferir revisar depois, pode responder "PULAR" e seguimos.',
+        ]
+    )
+    return "\n".join(lines)
+
+
+def cost_review_adjustment_prompt() -> str:
+    return (
+        "Posso ajustar essa leitura com você por aqui.\n\n"
+        'Me diga a transação, o tipo de custo, a categoria e, se fizer sentido, a subcategoria. '
+        'Por exemplo: "Seguro é fixo e fica em Saúde, subcategoria Seguro".'
+    )
+
+
+def build_cost_review_confirmation(
+    fixed_costs: list[dict[str, float | str]],
+    variable_costs: list[dict[str, float | str]],
+) -> str:
+    lines = ["Perfeito. Ajustei essa leitura inicial dos seus custos assim:"]
+
+    if fixed_costs:
+        lines.extend(["", "Fixos:"])
+        for item in fixed_costs[:4]:
+            categoria = str(item.get("categoria") or "Outros")
+            subcategoria = str(item.get("subcategoria") or "Sem subcategoria")
+            lines.append(f"- {item['descricao']} | {categoria} | {subcategoria}")
+
+    if variable_costs:
+        lines.extend(["", "Variáveis:"])
+        for item in variable_costs[:4]:
+            categoria = str(item.get("categoria") or "Outros")
+            subcategoria = str(item.get("subcategoria") or "Sem subcategoria")
+            lines.append(f"- {item['descricao']} | {categoria} | {subcategoria}")
+
+    return "\n".join(lines)
+>>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)

@@ -119,6 +119,7 @@ SCHEMA_STATEMENTS = (
         user_id BIGINT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
         descricao VARCHAR(255) NOT NULL,
         categoria VARCHAR(100) NULL,
+        subcategoria VARCHAR(100) NULL,
         valor_medio NUMERIC(12, 2) NOT NULL,
         tipo_custo VARCHAR(20) NOT NULL CHECK (tipo_custo IN ('fixo', 'variavel')),
         confirmado BOOLEAN NOT NULL DEFAULT FALSE,
@@ -177,6 +178,10 @@ SCHEMA_STATEMENTS = (
     """
     ALTER TABLE documentos_financeiros
     ADD COLUMN IF NOT EXISTS cartao_id BIGINT NULL
+    """,
+    """
+    ALTER TABLE custos_mensais
+    ADD COLUMN IF NOT EXISTS subcategoria VARCHAR(100) NULL
     """,
     """
     UPDATE configuracoes_usuario
@@ -285,6 +290,9 @@ def get_cursor():
     cursor = conn.cursor()
     try:
         yield conn, cursor
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         cursor.close()
         conn.close()
