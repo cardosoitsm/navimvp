@@ -1,8 +1,18 @@
 .env
-__pycache__/
-*.pyc
-# Obsidian transient files
+# Obsidian
 .obsidian/workspace.json
 .obsidian/workspaces.json
 .obsidian/cache
 .obsidian/snapshots
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Logs/temp reports
+*.txt
+
+# OS
+.DS_Store
+Thumbs.db
