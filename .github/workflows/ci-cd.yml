@@ -70,9 +70,6 @@ jobs:
             --name navimvp-hom-vm
           echo "VM is running"
 
-<<<<<<< HEAD
-      - name: Deploy to Azure VM
-=======
           compose_b64 = base64.b64encode(open('docker-compose.prod.yml', 'rb').read()).decode()
           db_sql_b64  = base64.b64encode(open('db/init.sql', 'rb').read()).decode()
 
@@ -135,7 +132,6 @@ jobs:
           PYEOF
 
       - name: Deploy to Azure VM (SSH-free via Azure CLI)
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
         run: |
           az vm run-command invoke \
             --resource-group navimvp-hom-rg \
