@@ -2,6 +2,9 @@
 set -euo pipefail
 echo "=== Navi Deploy Start ==="
 
+# Ensure OS firewall (ufw) allows port 8000
+ufw allow 8000/tcp 2>/dev/null || true
+
 APP_DIR=/home/__USER__/navimvp
 mkdir -p "$APP_DIR/db"
 cd "$APP_DIR"
