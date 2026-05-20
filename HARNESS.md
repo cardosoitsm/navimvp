@@ -10,30 +10,11 @@
 
 A test harness is the complete infrastructure that makes a system testable in
 a controlled, repeatable, and deterministic way. It is not a set of test
-<<<<<<< HEAD
-functions -- it is the **scaffold** those functions run inside.
-=======
 functions — it is the **scaffold** those functions run inside.
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 
 The harness for Navi has four engineering layers:
 
 ```
-<<<<<<< HEAD
-+---------------------------------------------------------------------+
-|  Layer 4 -- Test Oracle                                             |
-|  How correctness is decided: HTTP status, response body, DB state   |
-+---------------------------------------------------------------------+
-|  Layer 3 -- Test Controller                                         |
-|  pytest + conftest.py + fixtures + docker-compose.test.yml          |
-+---------------------------------------------------------------------+
-|  Layer 2 -- Interface Adapters (Stubs & Simulators)                 |
-|  tests/stubs/openai_stub.py  .  tests/stubs/twilio_sim.py          |
-+---------------------------------------------------------------------+
-|  Layer 1 -- System Under Test (SUT)                                 |
-|  app/ -- FastAPI + PostgreSQL + uvicorn                             |
-+---------------------------------------------------------------------+
-=======
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Layer 4 — Test Oracle                                              │
 │  How correctness is decided: HTTP status, response body, DB state  │
@@ -47,7 +28,6 @@ The harness for Navi has four engineering layers:
 │  Layer 1 — System Under Test (SUT)                                  │
 │  app/ — FastAPI + PostgreSQL + uvicorn                              │
 └─────────────────────────────────────────────────────────────────────┘
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 ```
 
 ---
@@ -79,21 +59,6 @@ The SUT is the `app/` directory running as a FastAPI/uvicorn process.
 ### SUT boundary diagram
 
 ```
-<<<<<<< HEAD
-                +--------------------------------------+
-                |          SYSTEM UNDER TEST           |
-  Twilio        |                                      |        PostgreSQL
-  Simulator --->|  POST /webhook                       |<------>  (test)
-                |      |                               |
-  pytest        |  app/main.py                         |
-  TestClient -->|      |                               |
-                |  app/services/                        |
-                |      |                               |
-  OpenAI        |  app/db.py                           |
-  Stub      <---|      (psycopg2)                      |
-  (HTTP)        |                                      |
-                +--------------------------------------+
-=======
                 ┌──────────────────────────────────────┐
                 │          SYSTEM UNDER TEST            │
   Twilio        │                                      │        PostgreSQL
@@ -107,16 +72,11 @@ The SUT is the `app/` directory running as a FastAPI/uvicorn process.
   Stub      ◀───│      (psycopg2)                      │
   (HTTP)        │                                      │
                 └──────────────────────────────────────┘
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 ```
 
 **Key design decision:** The OpenAI stub runs as a separate HTTP process on
 `localhost:11435`. The SUT points its `OPENAI_BASE_URL` env var at the stub,
-<<<<<<< HEAD
-so the real OpenAI SDK makes real HTTP calls -- just to our controlled server.
-=======
 so the real OpenAI SDK makes real HTTP calls — just to our controlled server.
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 This exercises the HTTP client code path, not just mock return values.
 
 The Twilio simulator (`twilio_sim.py`) generates valid HMAC-SHA1 signatures
@@ -180,17 +140,10 @@ AUTH_TOKEN=test-token                   # used for Twilio signature validation
 TWILIO_NUMBER=whatsapp:+5511999999999
 ```
 
-<<<<<<< HEAD
-### 4.2 Local test run (fast path -- mocks, no stub server)
-
-This is the default mode used by `pytest` directly. OpenAI is mocked at the
-Python object level using `unittest.mock.patch`. Fastest -- no Docker needed
-=======
 ### 4.2 Local test run (fast path — mocks, no stub server)
 
 This is the default mode used by `pytest` directly. OpenAI is mocked at the
 Python object level using `unittest.mock.patch`. Fastest — no Docker needed
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 beyond PostgreSQL.
 
 ```bash
@@ -216,12 +169,8 @@ docker stop navi-test-db
 ### 4.3 Full harness run (stub server mode)
 
 Uses `docker-compose.test.yml` to bring up PostgreSQL + OpenAI stub server.
-<<<<<<< HEAD
-The SUT runs as a subprocess pointed at both.
-=======
 The SUT runs as a subprocess pointed at both. Used for integration-level
 validation where real HTTP calls to the OpenAI stub server matter.
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 
 ```bash
 docker-compose -f docker-compose.test.yml up -d
@@ -259,17 +208,10 @@ The stub server exercises all of the above.
 
 ```
 SUT (app/services/chat.py)
-<<<<<<< HEAD
-  +-- OpenAI(api_key=..., base_url=OPENAI_BASE_URL)
-        +-- POST http://localhost:11435/v1/chat/completions
-              +-- openai_stub.py
-                    +-- returns scripted JSON from tests/fixtures/openai_responses.json
-=======
   └── OpenAI(api_key=..., base_url=OPENAI_BASE_URL)
         └── POST http://localhost:11435/v1/chat/completions
               └── openai_stub.py
                     └── returns scripted JSON from tests/fixtures/openai_responses.json
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 ```
 
 **Control API:**
@@ -307,11 +249,7 @@ resp = sim.send(client, body="Oi", from_number="+5511900000001")
 ```
 
 **When to use:** Use `TwilioSim` when testing signature validation logic.
-<<<<<<< HEAD
-For most tests, use `post_webhook()` from `tests/harness.py` directly --
-=======
 For most tests, use `post_webhook()` from `tests/harness.py` directly —
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 it bypasses signature validation for speed.
 
 ---
@@ -322,30 +260,18 @@ it bypasses signature validation for speed.
 
 All test phone numbers come from `tests/harness.py::test_phone(N)`.
 
-<<<<<<< HEAD
-Format: `+55009XXXXXXXX` -- area code `00` does not exist in Brazil.
-=======
 Format: `+55009XXXXXXXX` — area code `00` does not exist in Brazil.
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 These numbers can never be confused with real users.
 
 Allocation:
 
 | Range | Owner |
 |---|---|
-<<<<<<< HEAD
-| 1-100 | `test_webhook.py` |
-| 101-200 | `test_security.py` |
-| 201-300 | `test_chat.py` (uses email-based users) |
-| 301-400 | `test_scenarios.py` (scenario classes) |
-| 901-910 | Reserved for fixtures (`onboarded_user`, etc.) |
-=======
 | 1–100 | `test_webhook.py` |
 | 101–200 | `test_security.py` |
 | 201–300 | `test_chat.py` (uses email-based users) |
 | 301–400 | `test_scenarios.py` (scenario classes) |
 | 901–910 | Reserved for fixtures (`onboarded_user`, etc.) |
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 
 ### 6.2 Seed data (`tests/fixtures/seed.sql`)
 
@@ -374,11 +300,7 @@ The test controller is `pytest` configured by:
 |---|---|
 | `tests/conftest.py` | Session fixtures, DB setup, global harness fixture registration |
 | `tests/harness.py` | Conversation drivers, mock factories, assertion helpers, phone pool |
-<<<<<<< HEAD
-| `tests/TRACEABILITY.md` | Requirements to test mapping (the spec) |
-=======
 | `tests/TRACEABILITY.md` | Requirements → test mapping (the spec) |
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 | `docker-compose.test.yml` | Full-harness environment orchestration |
 | `.github/workflows/ci.yml` | CI controller: runs tests on every PR and push to main |
 
@@ -391,11 +313,7 @@ A test passes when:
 1. **HTTP status** is the expected value (200, 400, 401, 403, 422)
 2. **Response body** contains expected Portuguese keywords (case-insensitive)
 3. **Database state** reflects the expected side effects (when checked)
-<<<<<<< HEAD
-4. **No 500 errors** at any point -- a 500 is always a blocker
-=======
 4. **No 500 errors** at any point — a 500 is always a blocker
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 
 The oracle is implemented in `tests/harness.py::assert_webhook_ok()` and
 `assert_webhook_error()`, plus inline `assert` statements in test functions.
@@ -405,11 +323,7 @@ The oracle is implemented in `tests/harness.py::assert_webhook_ok()` and
 - Twilio outbound message delivery (tested via Twilio sandbox manually)
 - OpenAI response quality (the stub controls this deterministically)
 - Azure infrastructure health (validated by QA agent post-deploy)
-<<<<<<< HEAD
-- Exact Portuguese wording (keywords only -- wording is a product decision)
-=======
 - Exact Portuguese wording (keywords only — wording is a product decision)
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 
 ---
 
@@ -420,11 +334,7 @@ The oracle is implemented in `tests/harness.py::assert_webhook_ok()` and
 | Overall `app/` | 65% | CI threshold in `ci.yml` |
 | Changed files (per PR) | 70% | QA agent checklist |
 | Security-critical paths (`auth.py`, `db.py`) | 80% | QA agent checklist |
-<<<<<<< HEAD
-| Scenario A-H coverage | 100% scenario steps | `test_scenarios.py` |
-=======
 | Scenario A–H coverage | 100% scenario steps | `test_scenarios.py` |
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 
 ---
 
@@ -432,27 +342,14 @@ The oracle is implemented in `tests/harness.py::assert_webhook_ok()` and
 
 | Change type | Harness impact |
 |---|---|
-<<<<<<< HEAD
-| New endpoint added | Add to interface catalog (S3), add tests |
-| New external service integrated | Add to boundary diagram (S2), create stub |
-=======
 | New endpoint added | Add to interface catalog (§3), add tests |
 | New external service integrated | Add to boundary diagram (§2), create stub |
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 | New onboarding state added | Update `complete_onboarding()` in `harness.py`, update scenario A |
 | New budget threshold | Add scenario D test step |
 | New table with `user_id` column | Update `LGPD` test in `test_scenarios.py`, update seed.sql |
 | SEC rule added/changed | Update `TRACEABILITY.md`, update security scenario |
-<<<<<<< HEAD
-| Phone number range exhausted | Extend pool allocation table in S6.1 |
-
----
-
-*Maintained by: QA Agent | Last updated: 2026-05-07*
-=======
 | Phone number range exhausted | Extend pool allocation table in §6.1 |
 
 ---
 
 *Maintained by: QA Agent | Last updated: 2026-05-06*
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
