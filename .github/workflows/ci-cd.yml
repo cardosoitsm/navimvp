@@ -97,3 +97,11 @@ jobs:
             --name navimvp-hom-vm \
             --command-id RunShellScript \
             --scripts @/tmp/deploy.sh
+
+      - name: Verify container health on VM
+        run: |
+          az vm run-command invoke \
+            --resource-group navimvp-hom-rg \
+            --name navimvp-hom-vm \
+            --command-id RunShellScript \
+            --scripts "sleep 5 && docker ps && echo '--- app logs ---' && docker logs navimvp-app-1 --tail 30 && curl -sf http://localhost:8000/health && echo 'HEALTH OK' || echo 'HEALTH FAILED'"
