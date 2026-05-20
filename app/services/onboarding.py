@@ -100,7 +100,6 @@ VARIABLE_COST_KEYWORDS = (
     "loterias",
 )
 
-<<<<<<< HEAD
 COST_CATEGORY_KEYWORDS = {
     "Moradia": ("aluguel", "condominio", "condomínio", "agua", "água", "gas", "gás", "energia", "luz"),
     "Saude": ("farmacia", "farmácia", "seguro", "plano", "consulta", "medico", "médico"),
@@ -109,85 +108,6 @@ COST_CATEGORY_KEYWORDS = {
     "Comunicacao": ("telefone", "vivo", "claro", "tim", "internet"),
     "Financeiro": ("boleto", "juros", "iof", "tarifa", "financiamento", "parcela"),
     "Lazer": ("lazer", "cinema", "show", "streaming", "loterias"),
-=======
-COST_TAXONOMY = {
-    "Moradia": {
-        "keywords": ("aluguel", "condominio", "condomínio", "agua", "água", "gas", "gás", "energia", "luz"),
-        "subcategories": {
-            "Aluguel": ("aluguel",),
-            "Condomínio": ("condominio", "condomínio"),
-            "Energia": ("energia", "luz"),
-            "Água": ("agua", "água"),
-            "Gás": ("gas", "gás"),
-        },
-    },
-    "Saúde": {
-        "keywords": ("farmacia", "farmácia", "seguro", "plano", "consulta", "medico", "médico"),
-        "subcategories": {
-            "Farmácia": ("farmacia", "farmácia"),
-            "Plano de Saúde": ("plano",),
-            "Seguro": ("seguro",),
-            "Consulta": ("consulta", "medico", "médico"),
-        },
-    },
-    "Alimentação": {
-        "keywords": ("mercado", "supermercado", "ifood", "restaurante", "padaria", "cantina"),
-        "subcategories": {
-            "Mercado": ("mercado", "supermercado"),
-            "Delivery": ("ifood",),
-            "Restaurante": ("restaurante",),
-            "Padaria": ("padaria",),
-            "Cantina": ("cantina",),
-        },
-    },
-    "Transporte": {
-        "keywords": ("uber", "combustivel", "combustível", "posto", "99", "pedagio", "pedágio", "estacionamento"),
-        "subcategories": {
-            "Aplicativos": ("uber", "99"),
-            "Combustível": ("combustivel", "combustível", "posto"),
-            "Pedágio": ("pedagio", "pedágio"),
-            "Estacionamento": ("estacionamento",),
-        },
-    },
-    "Comunicação": {
-        "keywords": ("telefone", "vivo", "claro", "tim", "internet"),
-        "subcategories": {
-            "Telefonia": ("telefone", "vivo", "claro", "tim"),
-            "Internet": ("internet",),
-        },
-    },
-    "Educação": {
-        "keywords": ("escola", "faculdade", "curso", "editora", "sociaedu", "socieda", "revista", "livro", "globo"),
-        "subcategories": {
-            "Escola": ("escola", "sociaedu", "socieda"),
-            "Cursos": ("curso", "faculdade"),
-            "Revistas": ("editora", "revista", "globo"),
-            "Livros": ("livro",),
-        },
-    },
-    "Financeiro": {
-        "keywords": ("boleto", "juros", "iof", "tarifa", "financiamento", "parcela"),
-        "subcategories": {
-            "Boletos": ("boleto",),
-            "Juros": ("juros", "iof"),
-            "Financiamento": ("financiamento", "parcela"),
-            "Tarifas": ("tarifa",),
-        },
-    },
-    "Lazer": {
-        "keywords": ("lazer", "cinema", "show", "streaming", "loterias"),
-        "subcategories": {
-            "Streaming": ("streaming",),
-            "Cinema": ("cinema",),
-            "Shows": ("show",),
-            "Loterias": ("loterias",),
-        },
-    },
-    "Outros": {
-        "keywords": (),
-        "subcategories": {},
-    },
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
 }
 
 GENERIC_COST_TOKENS = {
@@ -451,11 +371,7 @@ def cost_review_prompt(fixed_costs: list[dict[str, float | str]], variable_costs
 def cost_review_adjustment_prompt() -> str:
     return (
         "Posso ajustar isso com você por aqui.\n\n"
-<<<<<<< HEAD
         'Me diga no formato que for mais natural, por exemplo: "Seguro é fixo" ou "Mercado entra em alimentação".'
-=======
-        'Me diga no formato que for mais natural, por exemplo: "Seguro é fixo e fica em Saúde, subcategoria Seguro".'
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
     )
 
 
@@ -1011,12 +927,7 @@ def infer_cost_candidates(user_id: int) -> tuple[list[dict[str, float | str]], l
             "descricao": description,
             "valor": amount,
             "tipo_custo": cost_type,
-<<<<<<< HEAD
             "categoria": _classify_cost_category(description) or "Outros",
-=======
-            "categoria": category,
-            "subcategoria": _classify_cost_subcategory(description, category) or "Sem subcategoria",
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
         }
         if cost_type == "fixo":
             fixed_costs.append(payload)
@@ -1075,29 +986,17 @@ def save_cost_candidates(
                     cursor.execute(
                         """
                         INSERT INTO custos_mensais (user_id, descricao, categoria, subcategoria, valor_medio, tipo_custo, confirmado, origem)
-<<<<<<< HEAD
                         VALUES (%s, %s, %s, %s, %s, 'fixo', TRUE, %s)
                         """,
                         (user_id, item["descricao"], item.get("categoria"), item.get("subcategoria"), item["valor"], origem),
-=======
-                        VALUES (%s, %s, %s, %s, %s, 'fixo', TRUE, 'extrato')
-                        """,
-                        (user_id, item["descricao"], item.get("categoria"), item.get("subcategoria"), item["valor"]),
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
                     )
                 for item in variable_costs:
                     cursor.execute(
                         """
                         INSERT INTO custos_mensais (user_id, descricao, categoria, subcategoria, valor_medio, tipo_custo, confirmado, origem)
-<<<<<<< HEAD
                         VALUES (%s, %s, %s, %s, %s, 'variavel', TRUE, %s)
                         """,
                         (user_id, item["descricao"], item.get("categoria"), item.get("subcategoria"), item["valor"], origem),
-=======
-                        VALUES (%s, %s, %s, %s, %s, 'variavel', TRUE, 'extrato')
-                        """,
-                        (user_id, item["descricao"], item.get("categoria"), item.get("subcategoria"), item["valor"]),
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
                     )
 
         if _column_exists(cursor, "configuracoes_usuario", "custos_onboarding_concluido"):
@@ -1587,7 +1486,6 @@ def save_current_balance(user_id: int, balance: float) -> None:
         conn.commit()
 
 
-<<<<<<< HEAD
 def _latest_invoice_analysis(user_id: int) -> dict | None:
     with get_cursor() as (_, cursor):
         if not _table_exists(cursor, "documentos_financeiros"):
@@ -1656,71 +1554,3 @@ def infer_invoice_cost_candidates(user_id: int) -> tuple[list[dict[str, float | 
             variable_costs.append(payload)
 
     return fixed_costs[:4], variable_costs[:4]
-=======
-def cost_review_prompt(fixed_costs: list[dict[str, float | str]], variable_costs: list[dict[str, float | str]]) -> str:
-    lines = [
-        "Pelo que apareceu no seu extrato, eu já consegui montar uma primeira leitura dos seus custos mensais.",
-        "Quero te mostrar essa leitura para validar com você antes de seguir.",
-    ]
-
-    if fixed_costs:
-        lines.extend(["", "Custos que parecem mais fixos:"])
-        for item in fixed_costs[:4]:
-            categoria = str(item.get("categoria") or "Outros")
-            subcategoria = str(item.get("subcategoria") or "Sem subcategoria")
-            lines.append(
-                f"- {item['descricao']}: {format_brl(float(item['valor']))} | "
-                f"Categoria sugerida: {categoria} | Subcategoria sugerida: {subcategoria}"
-            )
-
-    if variable_costs:
-        lines.extend(["", "Custos que parecem mais variáveis:"])
-        for item in variable_costs[:4]:
-            categoria = str(item.get("categoria") or "Outros")
-            subcategoria = str(item.get("subcategoria") or "Sem subcategoria")
-            lines.append(
-                f"- {item['descricao']}: {format_brl(float(item['valor']))} | "
-                f"Categoria sugerida: {categoria} | Subcategoria sugerida: {subcategoria}"
-            )
-
-    lines.extend(
-        [
-            "",
-            'Se fizer sentido, me responda "SIM" e eu considero essa base daqui para frente.',
-            'Se quiser ajustar algo, você pode me dizer, por exemplo: "Seguro é fixo e fica em Saúde, subcategoria Seguro".',
-            'Se preferir revisar depois, pode responder "PULAR" e seguimos.',
-        ]
-    )
-    return "\n".join(lines)
-
-
-def cost_review_adjustment_prompt() -> str:
-    return (
-        "Posso ajustar essa leitura com você por aqui.\n\n"
-        'Me diga a transação, o tipo de custo, a categoria e, se fizer sentido, a subcategoria. '
-        'Por exemplo: "Seguro é fixo e fica em Saúde, subcategoria Seguro".'
-    )
-
-
-def build_cost_review_confirmation(
-    fixed_costs: list[dict[str, float | str]],
-    variable_costs: list[dict[str, float | str]],
-) -> str:
-    lines = ["Perfeito. Ajustei essa leitura inicial dos seus custos assim:"]
-
-    if fixed_costs:
-        lines.extend(["", "Fixos:"])
-        for item in fixed_costs[:4]:
-            categoria = str(item.get("categoria") or "Outros")
-            subcategoria = str(item.get("subcategoria") or "Sem subcategoria")
-            lines.append(f"- {item['descricao']} | {categoria} | {subcategoria}")
-
-    if variable_costs:
-        lines.extend(["", "Variáveis:"])
-        for item in variable_costs[:4]:
-            categoria = str(item.get("categoria") or "Outros")
-            subcategoria = str(item.get("subcategoria") or "Sem subcategoria")
-            lines.append(f"- {item['descricao']} | {categoria} | {subcategoria}")
-
-    return "\n".join(lines)
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
