@@ -70,6 +70,26 @@ jobs:
             --name navimvp-hom-vm
           echo "VM is running"
 
+      - name: Ensure NSG allows port 8000
+        run: |
+          NIC_ID=$(az vm show \
+            --resource-group navimvp-hom-rg \
+            --name navimvp-hom-vm \
+            --query "networkProfile.networkInterfaces[0].id" -o tsv)
+          NSG_ID=$(az network nic show --ids "$NIC_ID" \
+            --query "networkSecurityGroup.id" -o tsv)
+          NSG_NAME=$(az network nsg show --ids "$NSG_ID" --query name -o tsv)
+          az network nsg rule create \
+            --resource-group navimvp-hom-rg \
+            --nsg-name "$NSG_NAME" \
+            --name allow-8000 \
+            --priority 1010 \
+            --direction Inbound \
+            --access Allow \
+            --protocol Tcp \
+            --destination-port-ranges 8000 2>/dev/null \
+            || echo "NSG rule allow-8000 already exists — skipping"
+
       - name: Deploy to Azure VM (SSH-free via Azure CLI)
         run: |
           az vm run-command invoke \
