@@ -270,19 +270,11 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
     # Users in any onboarding state should always be able to query spending/health.
     _QUERY_INTENTS = frozenset({"financial_health", "recent_transactions", "budget_status"})
     _is_query = intent in _QUERY_INTENTS or "quanto gastei" in msg_lower
-<<<<<<< HEAD
     if onboarding_state == USER_REGISTRATION_PENDING:
         nome = parse_user_name(mensagem)
         if nome:
             save_user_name(user_id, nome)
             set_onboarding_state(user_id, ACCOUNT_SNAPSHOT_PENDING)
-=======
-
-    if onboarding_state == ACCOUNT_SNAPSHOT_PENDING and not _is_query:
-        if incoming_media:
-            _register_document_upload("extrato")
-            set_onboarding_state(user_id, BUDGET_SETUP_PENDING)
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
             resposta = (
                 f"Prazer, {nome}! Vou usar esse nome para te chamar por aqui.\n\n"
                 f"{account_snapshot_prompt()}"
@@ -342,7 +334,6 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         resposta = account_snapshot_retry_prompt()
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
-<<<<<<< HEAD
     if onboarding_state == STATEMENT_REVIEW_PENDING:
         if is_document_processing(user_id):
             resposta = "Ainda estou analisando seu extrato, aguarde um momento..."
@@ -425,8 +416,6 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             resposta = _build_analysis_message(analysis, "fatura_cartao")
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
-=======
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
     if (onboarding_state == BUDGET_SETUP_PENDING or not is_budget_onboarding_completed(user_id)) and not _is_query:
         if is_waiting_for_document(user_id):
             try:
@@ -526,7 +515,6 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         return Response(content=build_twiml(resposta), media_type="application/xml")
 
     if onboarding_state == COST_REVIEW_PENDING and not _is_query:
-<<<<<<< HEAD
         is_post_cards = bool(existing_card_names)
         if is_post_cards and is_document_processing(user_id):
             resposta = "Ainda estou processando sua fatura, aguarde um momento..."
@@ -546,9 +534,6 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
         else:
             fixed_costs, variable_costs = infer_cost_candidates(user_id)
 
-=======
-        fixed_costs, variable_costs = infer_cost_candidates(user_id)
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
         if not fixed_costs and not variable_costs:
             if is_post_cards:
                 complete_document_onboarding(user_id)
@@ -722,75 +707,6 @@ async def webhook(request: Request, background_tasks: BackgroundTasks) -> Respon
             )
             return Response(content=build_twiml(resposta), media_type="application/xml")
 
-<<<<<<< HEAD
-=======
-    if onboarding_state == CARD_DETAILS_PENDING and not _is_query:
-        try:
-            current_card = get_current_card(user_id)
-            if not current_card:
-                set_pending_card_index(user_id, 0)
-                set_onboarding_state(user_id, CARD_INVOICE_PENDING)
-                resposta = document_upload_prompt(user_id)
-                return Response(content=build_twiml(resposta), media_type="application/xml")
-
-            if should_skip_card_setup(mensagem):
-                next_card = advance_card_progress(user_id)
-                if next_card:
-                    resposta = (
-                        f"Tudo bem. A gente pode preencher esses detalhes do {current_card['nome_cartao']} depois.\n\n"
-                        f"{card_details_prompt(str(next_card['nome_cartao']))}"
-                    )
-                else:
-                    set_pending_card_index(user_id, 0)
-                    set_onboarding_state(user_id, CARD_INVOICE_PENDING)
-                    resposta = (
-                        "Tudo bem. Se precisar, a gente completa esses detalhes de compra mais tarde.\n\n"
-                        f"{document_upload_prompt(user_id)}"
-                    )
-                return Response(content=build_twiml(resposta), media_type="application/xml")
-
-            best_day, limit_value = parse_card_details_message(mensagem)
-            if best_day is not None or limit_value is not None:
-                updated_card = save_current_card_details(user_id, best_day, limit_value) or current_card
-                next_card = advance_card_progress(user_id)
-                detail_parts = []
-                if updated_card.get("dia_melhor_compra"):
-                    detail_parts.append(f"melhor dia {updated_card['dia_melhor_compra']}")
-                if updated_card.get("limite_credito") is not None:
-                    detail_parts.append(f"limite de R${float(updated_card['limite_credito']):.2f}")
-                detail_summary = ", ".join(detail_parts) if detail_parts else "essas informacoes"
-
-                if next_card:
-                    resposta = (
-                        f"Perfeito. Ja anotei {detail_summary} para o {updated_card['nome_cartao']}.\n\n"
-                        f"{card_details_prompt(str(next_card['nome_cartao']))}"
-                    )
-                else:
-                    set_pending_card_index(user_id, 0)
-                    set_onboarding_state(user_id, CARD_INVOICE_PENDING)
-                    resposta = (
-                        f"Perfeito. Ja anotei {detail_summary} para o {updated_card['nome_cartao']}.\n\n"
-                        f"{document_upload_prompt(user_id)}"
-                    )
-                return Response(content=build_twiml(resposta), media_type="application/xml")
-
-            resposta = (
-                f"Quero deixar o {current_card['nome_cartao']} bem configurado desde o inicio.\n\n"
-                f"{card_details_prompt(str(current_card['nome_cartao']))}"
-            )
-            return Response(content=build_twiml(resposta), media_type="application/xml")
-        except HTTPException as exc:
-            return Response(content=build_twiml(exc.detail), media_type="application/xml")
-        except Exception:
-            current_card = get_current_card(user_id)
-            fallback_name = current_card["nome_cartao"] if current_card else "esse cartao"
-            resposta = (
-                f"Tive um problema para salvar os detalhes do {fallback_name} agora.\n\n"
-                f"{card_details_prompt(str(fallback_name))}"
-            )
-            return Response(content=build_twiml(resposta), media_type="application/xml")
-
->>>>>>> bfa62b0 (Add Obsidian workspace and AI architecture files)
     if onboarding_state == CARD_INVOICE_PENDING and not _is_query:
         try:
             current_card = get_current_card(user_id)
